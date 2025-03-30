@@ -107,6 +107,7 @@ export const insertGpuSchema = createInsertSchema(gpus).pick({
   boostClock: true,
   pricePerHour: true,
   ownerId: true,
+  available: true,
   tdp: true,
   maxTemp: true,
   powerDraw: true,

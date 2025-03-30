@@ -285,9 +285,9 @@ export class PostgresStorage implements IStorage {
     const result = await pool.query(`
       INSERT INTO gpus (
         owner_id, name, manufacturer, vram, cuda_cores, base_clock, boost_clock, price_per_hour,
-        tdp, max_temp, power_draw, cooling_system, memory_type, psu_recommendation, power_connectors
+        tdp, max_temp, power_draw, cooling_system, memory_type, psu_recommendation, power_connectors, available
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `, [
       insertGpu.ownerId,
@@ -304,7 +304,8 @@ export class PostgresStorage implements IStorage {
       insertGpu.coolingSystem || null,
       insertGpu.memoryType || null,
       insertGpu.psuRecommendation || null,
-      insertGpu.powerConnectors || null
+      insertGpu.powerConnectors || null,
+      true // Always create GPUs as available
     ]);
     
     return this.mapDatabaseGpuToGpuModel(result.rows[0]);
