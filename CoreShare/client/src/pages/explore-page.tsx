@@ -91,17 +91,30 @@ export default function ExplorePage() {
       
       const videos = await response.json();
       
-      // Filter videos by category and only show approved ones
-      const approvedVideos = videos.filter((video: Video) => video.status === "approved");
+      // Show all videos, regardless of status (no filtering by approval status)
+      const allVideos = videos;
       
-      // Assign videos to their respective categories
+      // Helper function to shuffle array (Fisher-Yates algorithm)
+      const shuffleArray = (array: any[]) => {
+        const shuffled = [...array];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
+      };
+      
+      // Assign videos to their respective categories and randomize the order
       videoCategories.forEach(category => {
-        category.videos = approvedVideos
+        const categoryVideos = allVideos
           .filter((video: Video) => video.categoryId === category.id)
           .map((video: Video) => ({
             ...video,
             thumbnail: getYoutubeThumbnail(video.url)
           }));
+          
+        // Randomize videos in each category
+        category.videos = shuffleArray(categoryVideos);
       });
 
       setCategories(videoCategories);
@@ -169,7 +182,7 @@ export default function ExplorePage() {
                       <Info className="h-12 w-12 text-muted-foreground mb-4" />
                       <h3 className="text-xl font-medium mb-2">No videos available</h3>
                       <p className="text-muted-foreground max-w-md">
-                        There are no approved videos in this category yet. Be the first to contribute!
+                        There are no videos in this category yet. Be the first to share one!
                       </p>
                       <SubmitVideoForm onSuccess={fetchVideos} />
                     </div>

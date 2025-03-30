@@ -74,12 +74,12 @@ export function SubmitVideoForm({ onSuccess }: { onSuccess: () => void }) {
       
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to submit video");
+        throw new Error(errorData.message || "Failed to publish video");
       }
       
       toast({
-        title: "Video submitted successfully",
-        description: "Your video has been submitted for approval.",
+        title: "Video published successfully",
+        description: "Your video is now live on the Explore page!",
       });
       
       form.reset();
@@ -87,7 +87,7 @@ export function SubmitVideoForm({ onSuccess }: { onSuccess: () => void }) {
       onSuccess();
     } catch (error: any) {
       toast({
-        title: "Error submitting video",
+        title: "Error publishing video",
         description: error.message || "An unexpected error occurred",
         variant: "destructive",
       });
@@ -101,12 +101,15 @@ export function SubmitVideoForm({ onSuccess }: { onSuccess: () => void }) {
       <DialogTrigger asChild>
         <Button className="flex items-center gap-2">
           <PlusCircle className="h-4 w-4" />
-          Submit Video
+          Share Video
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Submit a YouTube Video</DialogTitle>
+          <DialogTitle>Share Your YouTube Video</DialogTitle>
+          <p className="text-sm text-muted-foreground mt-2">
+            Your video will be published immediately and appear in the Explore page.
+          </p>
         </DialogHeader>
         
         <Form {...form}>
@@ -188,10 +191,10 @@ export function SubmitVideoForm({ onSuccess }: { onSuccess: () => void }) {
                 {submitting ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Submitting...
+                    Publishing...
                   </>
                 ) : (
-                  "Submit Video"
+                  "Publish Video"
                 )}
               </Button>
             </div>

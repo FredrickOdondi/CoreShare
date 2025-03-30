@@ -1439,14 +1439,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       videoData.thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
       videoData.userId = req.user.id;
       
+      // We don't need to set a status anymore as we're completely removing the approval process
+      
       const newVideo = await storage.createVideo(videoData);
       
-      // Create notification for admin about new video submission
+      // Create notification to let the user know their video was posted
       await storage.createNotification({
-        userId: 1, // Admin user ID
-        title: 'New Video Submission',
-        message: `A new video "${videoData.title}" has been submitted for review.`,
-        type: 'video_submission',
+        userId: req.user.id,
+        title: 'Video Published',
+        message: `Your video "${videoData.title}" has been published and is now visible in the Explore page.`,
+        type: 'video_published',
         relatedId: newVideo.id,
       });
       
@@ -1471,62 +1473,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Admin routes for video management
-  app.post('/api/admin/videos/:id/approve', isAuthenticated, hasRole(["admin"]), async (req, res) => {
-    try {
-      const videoId = parseInt(req.params.id);
-      const video = await storage.approveVideo(videoId);
-      
-      if (!video) {
-        return res.status(404).json({ message: 'Video not found' });
-      }
-      
-      // Create notification for the user
-      await storage.createNotification({
-        userId: video.userId,
-        title: 'Video Approved',
-        message: `Your video "${video.title}" has been approved and is now visible in the Explore page.`,
-        type: 'video_approved',
-        relatedId: video.id,
-      });
-      
-      res.json(video);
-    } catch (error) {
-      console.error('Error approving video:', error);
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
-  
-  app.post('/api/admin/videos/:id/reject', isAuthenticated, hasRole(["admin"]), async (req, res) => {
-    try {
-      const videoId = parseInt(req.params.id);
-      const { reason } = req.body;
-      
-      if (!reason) {
-        return res.status(400).json({ message: 'Rejection reason is required' });
-      }
-      
-      const video = await storage.rejectVideo(videoId, reason);
-      
-      if (!video) {
-        return res.status(404).json({ message: 'Video not found' });
-      }
-      
-      // Create notification for the user
-      await storage.createNotification({
-        userId: video.userId,
-        title: 'Video Rejected',
-        message: `Your video "${video.title}" has been rejected. Reason: ${reason}`,
-        type: 'video_rejected',
-        relatedId: video.id,
-      });
-      
-      res.json(video);
-    } catch (error) {
-      console.error('Error rejecting video:', error);
-      res.status(500).json({ message: 'Internal server error' });
-    }
-  });
+  // Admin routes for video management have been removed
+  // No approval process is needed as videos are published immediately
   
   const httpServer = createServer(app);
   return httpServer;

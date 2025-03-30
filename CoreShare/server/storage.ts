@@ -932,16 +932,15 @@ export class PostgresStorage implements IStorage {
       params.push(categoryId);
     }
     
-    if (status) {
-      conditions.push(`status = $${params.length + 1}`);
-      params.push(status);
-    }
+    // We no longer filter by status as all videos are immediately published
+    // The status parameter is kept for backwards compatibility
     
     if (conditions.length > 0) {
       query += ` WHERE ${conditions.join(' AND ')}`;
     }
     
-    query += ' ORDER BY created_at DESC';
+    // Randomize order for YouTube-like experience instead of chronological
+    query += ' ORDER BY RANDOM()';
     
     const result = await pool.query(query, params);
     return result.rows.map(video => this.mapDatabaseVideoToVideoModel(video));
@@ -950,9 +949,9 @@ export class PostgresStorage implements IStorage {
   async createVideo(video: InsertVideo): Promise<Video> {
     const result = await pool.query(`
       INSERT INTO videos (
-        title, url, thumbnail, channel_title, user_id, category_id
+        title, url, thumbnail, channel_title, user_id, category_id, status
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
     `, [
       video.title,
@@ -961,6 +960,7 @@ export class PostgresStorage implements IStorage {
       video.channelTitle,
       video.userId,
       video.categoryId,
+      'approved', // All videos are immediately approved
     ]);
     
     return this.mapDatabaseVideoToVideoModel(result.rows[0]);

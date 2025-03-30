@@ -186,6 +186,7 @@ export const insertVideoSchema = createInsertSchema(videos).pick({
   channelTitle: true,
   userId: true,
   categoryId: true,
+  status: true,
 });
 
 // Types

@@ -30,11 +30,8 @@ interface Video {
   rejectionReason?: string;
 }
 
-const statusColors: Record<string, string> = {
-  pending: "bg-yellow-500",
-  approved: "bg-green-500",
-  rejected: "bg-red-500",
-};
+// All videos are now published directly with "approved" status
+const publishedBadgeColor = "bg-green-500";
 
 const categoryNames: Record<string, string> = {
   gaming: "Gaming with GPUs",
@@ -91,12 +88,12 @@ export function MyVideos() {
       <DialogTrigger asChild>
         <Button variant="outline" className="flex items-center gap-2">
           <VideoIcon className="h-4 w-4" />
-          My Videos
+          My Shared Videos
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[800px]">
         <DialogHeader>
-          <DialogTitle>My Submitted Videos</DialogTitle>
+          <DialogTitle>My Shared Videos</DialogTitle>
         </DialogHeader>
         
         {loading ? (
@@ -105,7 +102,7 @@ export function MyVideos() {
           </div>
         ) : videos.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-32 text-center">
-            <p className="text-muted-foreground mb-2">You haven't submitted any videos yet</p>
+            <p className="text-muted-foreground mb-2">You haven't shared any videos yet</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -114,7 +111,7 @@ export function MyVideos() {
                 <TableRow>
                   <TableHead>Title</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>Status</TableHead>
+                  <TableHead>Published</TableHead>
                   <TableHead>Date</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -127,15 +124,10 @@ export function MyVideos() {
                     <TableCell>
                       <Badge
                         variant="outline"
-                        className={`${statusColors[video.status]} text-white border-none`}
+                        className={`${publishedBadgeColor} text-white border-none`}
                       >
-                        {video.status.charAt(0).toUpperCase() + video.status.slice(1)}
+                        Published
                       </Badge>
-                      {video.status === "rejected" && video.rejectionReason && (
-                        <div className="text-xs text-red-500 mt-1">
-                          Reason: {video.rejectionReason}
-                        </div>
-                      )}
                     </TableCell>
                     <TableCell>{formatDate(video.createdAt)}</TableCell>
                     <TableCell>
