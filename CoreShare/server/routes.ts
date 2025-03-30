@@ -764,6 +764,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get a specific rental by ID
+  app.get("/api/rentals/:id", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid rental ID" });
+      }
+      
+      const rental = await storage.getRental(id);
+      if (!rental) {
+        return res.status(404).json({ message: "Rental not found" });
+      }
+      
+      // Security check: user must be either the renter or the GPU owner
+      const gpu = await storage.getGpu(rental.gpuId);
+      const authenticatedReq = req as AuthenticatedRequest;
+      
+      if (rental.renterId !== authenticatedReq.user.id && 
+          gpu && gpu.ownerId !== authenticatedReq.user.id) {
+        return res.status(403).json({ message: "Permission denied" });
+      }
+      
+      res.json(rental);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
   // Get active rentals for GPU owner dashboard
   app.get("/api/my/customers", isAuthenticated, hasRole(["rentee"]), async (req, res) => {
     try {
