@@ -73,6 +73,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Temporary endpoint for development testing - no auth required
+  app.post("/api/dev/analyze-gpus", async (req, res) => {
+    try {
+      await storage.analyzeGpuUsage();
+      res.json({ success: true, message: "GPU usage analysis completed" });
+    } catch (error: any) {
+      console.error("Analysis error:", error);
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
   // Get GPU by ID
   app.get("/api/gpus/:id", async (req, res) => {
     try {
