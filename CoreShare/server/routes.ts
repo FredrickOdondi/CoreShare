@@ -178,15 +178,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You don't own this GPU" });
       }
       
-      // Check if GPU is currently rented or has pending payments
+      // Check if GPU is currently rented
       if (!gpu.available) {
-        return res.status(400).json({ message: "Cannot delete a GPU that is currently rented" });
-      }
-      
-      // Check if the GPU has any pending rentals in requires_payment status
-      const pendingRentals = await storage.getRentalsByGpuId(id);
-      if (pendingRentals.some(rental => rental.status === "requires_payment")) {
-        return res.status(400).json({ message: "Cannot delete a GPU that has pending payment rentals" });
+        // Get all rentals for this GPU to check their status
+        const rentals = await storage.getRentalsByGpuId(id);
+        
+        // Filter active rentals - we only block deletion for running or requires_payment statuses
+        // This allows deletion of GPUs with rentals in other states like cancelled, 
+        // completed, rejected, or pending_approval
+        const activeRentals = rentals.filter(rental => 
+          rental.status === "running" || 
+          rental.status === "requires_payment"
+        );
+        
+        // Log all rental statuses for debugging
+        console.log(`GPU ${id} has ${rentals.length} rentals, statuses: ${rentals.map(r => r.status).join(', ')}`);
+        console.log(`Active/blocking rentals: ${activeRentals.length}`);
+        
+        // If there are active or pending payment rentals, block deletion
+        if (activeRentals.length > 0) {
+          if (activeRentals.some(rental => rental.status === "running")) {
+            return res.status(400).json({ 
+              message: "Cannot delete a GPU that is currently being used. Stop the active rental first." 
+            });
+          } else {
+            return res.status(400).json({ 
+              message: "Cannot delete a GPU that has pending payment rentals. The renter must cancel the rental or complete payment first." 
+            });
+          }
+        }
+        
+        // If we get here, it means the GPU is marked as unavailable but has no active
+        // rentals (only cancelled, completed, rejected, etc.) so we can allow deletion
+        console.log(`Allowing deletion of GPU ${id} - has no active or pending payment rentals`);
       }
       
       await storage.deleteGpu(id);
@@ -546,13 +570,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (payment.rentalId) {
           const rental = await storage.getRental(payment.rentalId);
           if (rental) {
+            // Get the GPU to calculate initial cost (for 1 hour)
+            const gpu = await storage.getGpu(rental.gpuId);
+            const initialCost = gpu ? gpu.pricePerHour : payment.amount;
+            
+            // Update the rental with running status and payment amount
             const updatedRental = await storage.updateRental(rental.id, {
               status: "running",
-              paymentStatus: "paid"
+              paymentStatus: "paid",
+              totalCost: initialCost, // Set initial payment amount as totalCost
+              startTime: new Date() // Set the official start time to now
             });
-            
-            // Get the GPU info for notification
-            const gpu = await storage.getGpu(rental.gpuId);
             if (gpu) {
               // Notify the GPU owner that payment was received
               await storage.createNotification({
@@ -718,49 +746,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Associated GPU not found" });
       }
       
-      // Permission check - only the renter or GPU owner can stop a rental
+      // Permission check - only the renter or GPU owner can stop/cancel a rental
       if (rental.renterId !== authenticatedReq.user.id && gpu.ownerId !== authenticatedReq.user.id) {
         return res.status(403).json({ message: "Permission denied" });
       }
       
-      // Only active rentals can be stopped
-      if (rental.status !== "running") {
-        return res.status(400).json({ message: "Only active rentals can be stopped" });
+      // Handle different rental statuses
+      if (rental.status === "running") {
+        // Stop an active running rental
+        const endTime = new Date();
+        const durationMs = endTime.getTime() - rental.startTime.getTime();
+        const durationHours = durationMs / (1000 * 60 * 60);
+        const totalCost = parseFloat((durationHours * gpu.pricePerHour).toFixed(2));
+        
+        const updatedRental = await storage.updateRental(id, {
+          status: "completed",
+          endTime,
+          totalCost
+        });
+        
+        // Make GPU available again
+        await storage.updateGpu(gpu.id, { available: true });
+        
+        // Create notification for GPU owner that rental is completed
+        await storage.createNotification({
+          userId: gpu.ownerId,
+          title: "Rental Completed",
+          message: `Your GPU ${gpu.name} rental has been completed`,
+          type: 'rental_completed',
+          relatedId: rental.id
+        });
+        
+        // Create notification for renter with cost information
+        await storage.createNotification({
+          userId: rental.renterId,
+          title: "Rental Bill",
+          message: `Your rental of ${gpu.name} has been completed. Total cost: $${totalCost.toFixed(2)}`,
+          type: 'rental_bill',
+          relatedId: rental.id
+        });
+        
+        res.json({
+          ...updatedRental,
+          message: `Rental stopped successfully. Final cost: $${totalCost.toFixed(2)}`
+        });
+      } 
+      else if (rental.status === "requires_payment") {
+        // Cancel a rental that's still pending payment
+        // Update rental status to cancelled
+        const updatedRental = await storage.updateRental(id, {
+          status: "cancelled",
+          endTime: new Date()
+        });
+        
+        // Make GPU available again
+        await storage.updateGpu(gpu.id, { available: true });
+        
+        // Create notifications
+        const initiatedBy = rental.renterId === authenticatedReq.user.id ? "renter" : "owner";
+        
+        // Notify GPU owner
+        await storage.createNotification({
+          userId: gpu.ownerId,
+          title: "Rental Cancelled",
+          message: initiatedBy === "renter" 
+            ? `The rental request for your GPU ${gpu.name} has been cancelled by the renter.`
+            : `You have cancelled the rental request for your GPU ${gpu.name}.`,
+          type: 'rental_cancelled',
+          relatedId: rental.id
+        });
+        
+        // Notify renter
+        await storage.createNotification({
+          userId: rental.renterId,
+          title: "Rental Cancelled",
+          message: initiatedBy === "renter"
+            ? `You have cancelled your rental request for ${gpu.name}.`
+            : `Your rental request for ${gpu.name} has been cancelled by the GPU owner.`,
+          type: 'rental_cancelled',
+          relatedId: rental.id
+        });
+        
+        res.json({
+          ...updatedRental,
+          message: "Rental request cancelled successfully. GPU is now available again."
+        });
       }
-      
-      const endTime = new Date();
-      const durationMs = endTime.getTime() - rental.startTime.getTime();
-      const durationHours = durationMs / (1000 * 60 * 60);
-      const totalCost = parseFloat((durationHours * gpu.pricePerHour).toFixed(2));
-      
-      const updatedRental = await storage.updateRental(id, {
-        status: "completed",
-        endTime,
-        totalCost
-      });
-      
-      // Make GPU available again
-      await storage.updateGpu(gpu.id, { available: true });
-      
-      // Create notification for GPU owner that rental is completed
-      await storage.createNotification({
-        userId: gpu.ownerId,
-        title: "Rental Completed",
-        message: `Your GPU ${gpu.name} rental has been completed`,
-        type: 'rental_completed',
-        relatedId: rental.id
-      });
-      
-      // Create notification for renter with cost information
-      await storage.createNotification({
-        userId: rental.renterId,
-        title: "Rental Bill",
-        message: `Your rental of ${gpu.name} has been completed. Total cost: $${totalCost.toFixed(2)}`,
-        type: 'rental_bill',
-        relatedId: rental.id
-      });
-      
-      res.json(updatedRental);
+      else {
+        // Other statuses cannot be stopped/cancelled
+        return res.status(400).json({ 
+          message: `Rentals with status '${rental.status}' cannot be stopped or cancelled` 
+        });
+      }
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

@@ -72,14 +72,20 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
         const result = processMPesaCallback(callbackData);
         
         if (result.success) {
-          // Update the rental and payment status
+          // Update the payment first to access its data
+          const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId);
+          
+          // Get the GPU details and calculate initial cost
+          const gpu = await storage.getGpu(rental.gpuId);
+          const initialCost = gpu ? gpu.pricePerHour : (payment?.amount || 100);
+          
+          // Update the rental status, payment status, and cost
           await storage.updateRental(rental.id, {
             status: "running",
-            paymentStatus: "paid"
+            paymentStatus: "paid",
+            totalCost: initialCost,
+            startTime: new Date() // Set the official start time to now
           });
-          
-          // Update the payment
-          const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId);
           if (payment) {
             await storage.updatePayment(payment.id, {
               status: 'succeeded',
@@ -87,8 +93,7 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
             });
           }
           
-          // Notify the GPU owner
-          const gpu = await storage.getGpu(rental.gpuId);
+          // Notify the GPU owner (use the gpu variable we already fetched)
           if (gpu) {
             await storage.createNotification({
               userId: gpu.ownerId,
@@ -244,14 +249,19 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
         if (statusResponse.ResultCode === '0') {
           status = 'succeeded';
           
-          // If payment successful, also update the rental status
+          // Get the GPU to calculate initial cost
+          const gpu = await storage.getGpu(rental.gpuId);
+          const initialCost = gpu ? gpu.pricePerHour : payment.amount;
+          
+          // If payment successful, update rental with running status and cost
           await storage.updateRental(id, {
             status: "running",
-            paymentStatus: "paid"
+            paymentStatus: "paid",
+            totalCost: initialCost,
+            startTime: new Date() // Set the official start time to now
           });
           
-          // Notify the GPU owner of successful payment
-          const gpu = await storage.getGpu(rental.gpuId);
+          // Notify the GPU owner of successful payment (using the gpu variable we already have)
           if (gpu) {
             await storage.createNotification({
               userId: gpu.ownerId,
@@ -318,13 +328,20 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
           // Update the rental and payment status
           const rental = await storage.getRental(rentalId);
           if (rental) {
+            // Get the payment and GPU details
+            const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId || '');
+            const gpu = await storage.getGpu(rental.gpuId);
+            const initialCost = gpu ? gpu.pricePerHour : (payment?.amount || 0);
+            
+            // Update rental with payment info and start time
             await storage.updateRental(rentalId, {
               status: "running",
-              paymentStatus: "paid"
+              paymentStatus: "paid",
+              totalCost: initialCost,
+              startTime: new Date() // Set the official start time to now
             });
             
             // Update the payment
-            const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId || '');
             if (payment) {
               await storage.updatePayment(payment.id, {
                 status: 'succeeded',
@@ -332,8 +349,7 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
               });
             }
             
-            // Notify the GPU owner
-            const gpu = await storage.getGpu(rental.gpuId);
+            // Notify the GPU owner (use the gpu variable we already fetched)
             if (gpu) {
               await storage.createNotification({
                 userId: gpu.ownerId,

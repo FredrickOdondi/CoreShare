@@ -277,6 +277,53 @@ export function MPesaPaymentForm({ rentalId, gpuName, amount, onSuccess, onCance
             <p className="text-center text-sm text-muted-foreground">
               Waiting for your payment to be confirmed...
             </p>
+            
+            {/* Test Mode - Force Payment Completion Button */}
+            {import.meta.env.DEV && (
+              <div className="mt-4 p-2 bg-yellow-500/10 border border-yellow-500/20 rounded-md">
+                <p className="text-xs text-yellow-500 mb-2">Test Mode Only</p>
+                <Button 
+                  variant="outline" 
+                  size="sm"
+                  className="w-full text-xs bg-yellow-500/10 hover:bg-yellow-500/20 border-yellow-500/30"
+                  onClick={async () => {
+                    try {
+                      console.log("Manually completing test payment...");
+                      const response = await apiRequest('POST', `/api/test/mpesa-callback`, {
+                        rentalId: rentalId,
+                        success: true
+                      });
+                      
+                      if (response.ok) {
+                        toast({
+                          title: "Test Payment Completed",
+                          description: "The test payment has been manually marked as complete.",
+                        });
+                        setPaymentStatus('success');
+                        if (onSuccess) onSuccess();
+                      } else {
+                        const error = await response.text();
+                        console.error("Manual completion failed:", error);
+                        toast({
+                          variant: 'destructive',
+                          title: "Test Completion Failed",
+                          description: error || "Could not manually complete test payment",
+                        });
+                      }
+                    } catch (err) {
+                      console.error("Manual completion error:", err);
+                      toast({
+                        variant: 'destructive',
+                        title: "Test Completion Error",
+                        description: "Failed to send manual completion request",
+                      });
+                    }
+                  }}
+                >
+                  Force Complete Payment (Test Mode)
+                </Button>
+              </div>
+            )}
           </div>
         )}
         
