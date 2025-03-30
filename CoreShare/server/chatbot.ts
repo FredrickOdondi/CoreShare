@@ -69,7 +69,7 @@ If a user asks to create a new GPU listing or add a GPU to the platform:
 If you don't know an answer, admit it rather than making up information.
 `;
 
-// Knowledge base for quick reference (used for fallback if API fails)
+// Knowledge base for fallback responses when API is unavailable
 const knowledgeBase = {
   greeting: [
     "Hi there! I'm Cori, your CoreShare assistant. How can I help you today?",

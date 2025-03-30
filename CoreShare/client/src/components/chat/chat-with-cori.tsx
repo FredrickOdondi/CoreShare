@@ -215,11 +215,35 @@ export default function ChatWithCori() {
       // Check for potential GPU listing creation instructions in the bot response
       const content = botResponse.content.toLowerCase();
       
-      // If the bot seems to be confirming a GPU creation and we extracted the data
-      if (content.includes("creating") && content.includes("gpu") && content.includes("listing")) {
-        const gpuData = extractGpuDataFromMessages(messages);
-        if (gpuData && user) {
+      // If the bot seems to be confirming a GPU creation
+      if ((content.includes("creating") && content.includes("gpu") && content.includes("listing")) ||
+          (content.includes("successfully") && content.includes("gpu") && content.includes("listing")) ||
+          (content.includes("adding") && content.includes("gpu") && content.includes("marketplace"))) {
+        
+        console.log("Detected potential GPU creation message from Cori");
+        
+        // First check if user is logged in
+        if (!user) {
+          console.warn("Cannot create GPU: User not logged in");
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              role: "assistant",
+              content: "You need to be logged in to create GPU listings. Please log in and try again.",
+              timestamp: new Date(),
+            },
+          ]);
+          return;
+        }
+        
+        // Then try to extract GPU data
+        const gpuData = extractGpuDataFromMessages([...messages, botResponse]);
+        if (gpuData) {
+          console.log("Extracted GPU data:", gpuData);
           gpuCreateMutation.mutate(gpuData);
+        } else {
+          console.warn("Could not extract complete GPU data from conversation");
         }
       }
     },
@@ -257,42 +281,66 @@ export default function ChatWithCori() {
         const content = msg.content.toLowerCase();
         
         // Extract GPU name
-        const nameMatch = content.match(/name\s*:\s*([a-zA-Z0-9 ]+)/) || 
-                          content.match(/gpu\s+is\s+(?:a\s+)?([a-zA-Z0-9 ]+)/) || 
-                          content.match(/called\s+(?:a\s+)?([a-zA-Z0-9 ]+)/);
+        const nameMatch = content.match(/name\s*:?\s*([a-zA-Z0-9 ]+)/) || 
+                          content.match(/gpu\s+(?:is|called)\s+(?:a\s+)?([a-zA-Z0-9 ]+)/) || 
+                          content.match(/called\s+(?:a\s+)?([a-zA-Z0-9 ]+)/) ||
+                          content.match(/model\s*:?\s*([a-zA-Z0-9 ]+)/);
         if (nameMatch && !name) name = nameMatch[1].trim();
         
         // Extract manufacturer
-        const manufacturerMatch = content.match(/manufacturer\s*:\s*([a-zA-Z0-9 ]+)/) || 
+        const manufacturerMatch = content.match(/manufacturer\s*:?\s*([a-zA-Z0-9 ]+)/) || 
                                  content.match(/made by\s+([a-zA-Z0-9 ]+)/) || 
-                                 content.match(/from\s+([a-zA-Z0-9 ]+)/);
+                                 content.match(/from\s+([a-zA-Z0-9 ]+)/) ||
+                                 content.match(/brand\s*:?\s*([a-zA-Z0-9 ]+)/);
         if (manufacturerMatch && !manufacturer) manufacturer = manufacturerMatch[1].trim();
         
         // Extract VRAM
-        const vramMatch = content.match(/vram\s*:\s*(\d+)/) || 
-                         content.match(/(\d+)\s*gb\s+vram/) || 
-                         content.match(/memory\s*:\s*(\d+)/);
+        const vramMatch = content.match(/vram\s*:?\s*(\d+)/) || 
+                         content.match(/(\d+)\s*gb\s+(?:of\s+)?vram/) || 
+                         content.match(/memory\s*:?\s*(\d+)/) ||
+                         content.match(/(\d+)\s*gb\s+(?:of\s+)?memory/);
         if (vramMatch && !vram) vram = parseInt(vramMatch[1]);
         
         // Extract price per hour
-        const priceMatch = content.match(/price\s*:\s*\$?(\d+\.?\d*)/) || 
+        const priceMatch = content.match(/price\s*:?\s*\$?(\d+\.?\d*)/) || 
                           content.match(/\$(\d+\.?\d*)\s*\/\s*hour/) || 
-                          content.match(/(\d+\.?\d*)\s*dollars/);
+                          content.match(/(\d+\.?\d*)\s*dollars(?:\s*\/\s*hour)?/) ||
+                          content.match(/cost\s*:?\s*\$?(\d+\.?\d*)/) ||
+                          content.match(/rate\s*:?\s*\$?(\d+\.?\d*)/);
         if (priceMatch && !pricePerHour) pricePerHour = parseFloat(priceMatch[1]);
         
         // Extract description
-        const descMatch = content.match(/description\s*:\s*(.+)$/);
-        if (descMatch && !description) description = descMatch[1].trim();
+        const descMatch = content.match(/description\s*:?\s*(.+?)(?=\.|$)/) || 
+                         content.match(/about\s+(?:the\s+)?gpu\s*:?\s*(.+?)(?=\.|$)/);
+        if (descMatch && !description) description = descMatch[1].trim().substring(0, 255);
         
         // Extract technical specs
-        const cudaCoresMatch = content.match(/cuda\s+cores\s*:\s*(\d+)/);
+        const cudaCoresMatch = content.match(/cuda\s+cores\s*:?\s*(\d+)/) || 
+                              content.match(/cores\s*:?\s*(\d+)/);
         if (cudaCoresMatch) technicalSpecs.cudaCores = parseInt(cudaCoresMatch[1]);
         
-        const baseClockMatch = content.match(/base\s+clock\s*:\s*(\d+\.?\d*)/);
+        const baseClockMatch = content.match(/base\s+clock\s*:?\s*(\d+\.?\d*)/) || 
+                              content.match(/clock\s+speed\s*:?\s*(\d+\.?\d*)/);
         if (baseClockMatch) technicalSpecs.baseClock = parseFloat(baseClockMatch[1]);
         
-        const boostClockMatch = content.match(/boost\s+clock\s*:\s*(\d+\.?\d*)/);
+        const boostClockMatch = content.match(/boost\s+clock\s*:?\s*(\d+\.?\d*)/) || 
+                               content.match(/(?:boost|turbo)\s+speed\s*:?\s*(\d+\.?\d*)/);
         if (boostClockMatch) technicalSpecs.boostClock = parseFloat(boostClockMatch[1]);
+        
+        // Add additional spec extractions
+        const tdpMatch = content.match(/tdp\s*:?\s*(\d+)/) || 
+                        content.match(/power\s+consumption\s*:?\s*(\d+)/);
+        if (tdpMatch) technicalSpecs.tdp = parseInt(tdpMatch[1]);
+        
+        const maxTempMatch = content.match(/max\s+temp\s*:?\s*(\d+)/) || 
+                            content.match(/temperature\s+limit\s*:?\s*(\d+)/);
+        if (maxTempMatch) technicalSpecs.maxTemp = parseInt(maxTempMatch[1]);
+        
+        const coolingMatch = content.match(/cooling\s+system\s*:?\s*([a-zA-Z0-9 ]+)/);
+        if (coolingMatch) technicalSpecs.coolingSystem = coolingMatch[1].trim();
+        
+        const memoryTypeMatch = content.match(/memory\s+type\s*:?\s*([a-zA-Z0-9 ]+)/);
+        if (memoryTypeMatch) technicalSpecs.memoryType = memoryTypeMatch[1].trim();
       }
       
       // If we have the minimum required data, return the GPU request
