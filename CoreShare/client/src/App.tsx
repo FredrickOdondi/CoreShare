@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { AuthProvider } from "@/hooks/use-auth";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { ProtectedRoute } from "@/lib/protected-route";
+import ChatWithCori from "@/components/chat/chat-with-cori";
 
 // Pages
 import HomePage from "@/pages/home-page";
@@ -41,6 +42,7 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <Router />
+          <ChatWithCori />
           <Toaster />
         </AuthProvider>
       </ThemeProvider>

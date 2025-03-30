@@ -9,6 +9,7 @@ import {
   insertReviewSchema,
   insertNotificationSchema
 } from "@shared/schema";
+import * as chatbot from "./chatbot";
 
 // Middleware to check if user is authenticated
 const isAuthenticated = (req: any, res: any, next: any) => {
@@ -534,6 +535,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Chatbot Routes
+  
+  // Create a new chat session
+  app.post("/api/chat/session", async (req, res) => {
+    try {
+      const sessionId = chatbot.createChatSession();
+      res.json({ sessionId });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Send a message to the chatbot
+  app.post("/api/chat/message", async (req, res) => {
+    try {
+      const { sessionId, message } = req.body;
+      
+      if (!sessionId || !message) {
+        return res.status(400).json({ message: "Session ID and message are required" });
+      }
+      
+      const response = chatbot.processMessage(sessionId, message);
+      res.json(response);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Get all messages for a chat session
+  app.get("/api/chat/session/:sessionId", async (req, res) => {
+    try {
+      const { sessionId } = req.params;
+      
+      if (!sessionId) {
+        return res.status(400).json({ message: "Session ID is required" });
+      }
+      
+      const messages = chatbot.getChatMessages(sessionId);
+      
+      if (!messages) {
+        return res.status(404).json({ message: "Chat session not found" });
+      }
+      
+      res.json(messages);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // Notification Management Routes
   
   // Get all notifications for the current user
