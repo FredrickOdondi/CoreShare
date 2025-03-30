@@ -10,6 +10,7 @@ import OpenAI from 'openai';
 import { db } from './db';
 import { gpus, rentals, reviews, payments, users } from '@shared/schema';
 import { eq } from 'drizzle-orm';
+import { storage } from './storage';
 
 interface Message {
   id: string;
@@ -42,7 +43,7 @@ const openai = new OpenAI({
 const SYSTEM_PROMPT = `You are Cori, the helpful AI assistant for CoreShare, a platform for renting and sharing GPUs.
 You help users understand how the platform works and provide information about available GPUs,
 pricing, and the GPU rental/sharing process. You can also analyze GPU specifications and 
-make recommendations based on user needs.
+make recommendations based on user needs. You can help users create new GPU listings.
 
 The CoreShare platform allows:
 - GPU owners to rent out their hardware when not in use
@@ -56,6 +57,14 @@ When responding:
 - Explain the rental and sharing process
 - Help users understand GPU specifications and what they mean
 - Assist with troubleshooting common issues
+
+If a user asks to create a new GPU listing or add a GPU to the platform:
+1. Confirm that they want to create a new listing
+2. Ask them for the required GPU information: name, manufacturer, VRAM (in GB), price per hour
+3. Collect optional technical specifications if they have them: CUDA cores, base clock, boost clock, etc.
+4. When you have the essential information, tell them you're creating the listing
+5. Create the listing by using the createGpuListing function
+6. Confirm when the listing is created successfully or explain any errors
 
 If you don't know an answer, admit it rather than making up information.
 `;
@@ -328,3 +337,82 @@ export function cleanupOldSessions(): void {
 
 // Run cleanup every hour
 setInterval(cleanupOldSessions, 60 * 60 * 1000);
+
+/**
+ * Creates a new GPU listing
+ * This is used by the chatbot to add GPUs to the marketplace when a user requests it
+ */
+export async function createGpuListing(
+  userId: number,
+  name: string,
+  manufacturer: string,
+  vram: number,
+  pricePerHour: number,
+  description?: string,
+  technicalSpecs?: Record<string, any>
+): Promise<{ success: boolean; message: string; gpuId?: number }> {
+  try {
+    // Validate inputs
+    if (!userId) {
+      return { success: false, message: "You need to be logged in to create a GPU listing." };
+    }
+    
+    if (!name || !manufacturer) {
+      return { success: false, message: "GPU name and manufacturer are required." };
+    }
+    
+    if (isNaN(vram) || vram <= 0) {
+      return { success: false, message: "VRAM must be a positive number." };
+    }
+    
+    if (isNaN(pricePerHour) || pricePerHour <= 0) {
+      return { success: false, message: "Price per hour must be a positive number." };
+    }
+    
+    // Format technical specs as JSON string if provided
+    let specs = {};
+    if (technicalSpecs) {
+      specs = { ...technicalSpecs };
+    }
+    
+    // Create GPU listing
+    const newGpu = await storage.createGpu({
+      name,
+      manufacturer,
+      vram,
+      pricePerHour,
+      ownerId: userId,
+      // Optional technical specifications - if provided in the request
+      cudaCores: technicalSpecs?.cudaCores ? Number(technicalSpecs.cudaCores) : undefined,
+      baseClock: technicalSpecs?.baseClock ? Number(technicalSpecs.baseClock) : undefined,
+      boostClock: technicalSpecs?.boostClock ? Number(technicalSpecs.boostClock) : undefined,
+      tdp: technicalSpecs?.tdp ? Number(technicalSpecs.tdp) : undefined,
+      maxTemp: technicalSpecs?.maxTemp ? Number(technicalSpecs.maxTemp) : undefined,
+      powerDraw: technicalSpecs?.powerDraw ? Number(technicalSpecs.powerDraw) : undefined,
+      coolingSystem: technicalSpecs?.coolingSystem || undefined,
+      memoryType: technicalSpecs?.memoryType || undefined,
+      psuRecommendation: technicalSpecs?.psuRecommendation ? Number(technicalSpecs.psuRecommendation) : undefined,
+      powerConnectors: technicalSpecs?.powerConnectors || undefined
+    });
+    
+    // Create a notification for the user
+    await storage.createNotification({
+      userId,
+      title: "New GPU Listed",
+      type: "GPU_LISTED",
+      message: `Your GPU "${name}" has been successfully listed on the marketplace.`
+    });
+    
+    return { 
+      success: true, 
+      message: `Successfully created a listing for ${name} GPU.`,
+      gpuId: newGpu.id
+    };
+  } catch (error) {
+    console.error("Error creating GPU listing:", error);
+    return { 
+      success: false, 
+      message: "An error occurred while creating the GPU listing. Please try again." 
+    };
+  }
+}

@@ -587,6 +587,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
+  
+  // Create a GPU listing via Cori chatbot
+  app.post("/api/chat/create-gpu", isAuthenticated, async (req, res) => {
+    try {
+      const { name, manufacturer, vram, pricePerHour, description, technicalSpecs } = req.body;
+      
+      if (!name || !manufacturer || !vram || !pricePerHour) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Required fields: name, manufacturer, vram, and pricePerHour" 
+        });
+      }
+      
+      // Create the GPU listing
+      const result = await chatbot.createGpuListing(
+        req.user!.id, 
+        name, 
+        manufacturer, 
+        Number(vram), 
+        Number(pricePerHour),
+        description,
+        technicalSpecs
+      );
+      
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error creating GPU via chatbot:", error);
+      res.status(500).json({ 
+        success: false, 
+        message: error.message || "Error creating GPU listing" 
+      });
+    }
+  });
 
   // Notification Management Routes
   

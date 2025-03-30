@@ -1,11 +1,13 @@
 import { useState, useEffect, useRef } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "../ui/card";
 import { Avatar } from "../ui/avatar";
 import { ScrollArea } from "../ui/scroll-area";
 import { apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 type Message = {
   id: string;
@@ -18,6 +20,23 @@ type SessionResponse = {
   sessionId: string;
 };
 
+// Interface for creating a GPU listing
+interface CreateGpuRequest {
+  name: string;
+  manufacturer: string;
+  vram: number;
+  pricePerHour: number;
+  description?: string;
+  technicalSpecs?: Record<string, any>;
+}
+
+// GPU creation response
+interface CreateGpuResponse {
+  success: boolean;
+  message: string;
+  gpuId?: number;
+}
+
 export default function ChatWithCori() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
@@ -25,6 +44,10 @@ export default function ChatWithCori() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   // Create a new chat session
   const createSession = async (): Promise<string> => {
@@ -106,11 +129,99 @@ export default function ChatWithCori() {
     }
   }, [messages]);
 
+  // Create a GPU listing through the chatbot
+  const createGpuListing = async (data: CreateGpuRequest): Promise<CreateGpuResponse> => {
+    try {
+      const response = await apiRequest("POST", "/api/chat/create-gpu", data);
+      return await response.json() as CreateGpuResponse;
+    } catch (error) {
+      console.error("Error creating GPU listing:", error);
+      throw error;
+    }
+  };
+
+  // GPU creation mutation
+  const gpuCreateMutation = useMutation({
+    mutationFn: createGpuListing,
+    onSuccess: (response) => {
+      if (response.success) {
+        // Show success toast
+        toast({
+          title: "GPU Listing Created",
+          description: response.message,
+          variant: "default",
+        });
+        
+        // Refetch GPUs to update the list
+        queryClient.invalidateQueries({ queryKey: ["gpus"] });
+        
+        // Add a system message to the chat
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: `✅ ${response.message} You can now find it in your GPU listings. Is there anything else you'd like to do?`,
+            timestamp: new Date(),
+          },
+        ]);
+      } else {
+        // Show error toast
+        toast({
+          title: "GPU Creation Failed",
+          description: response.message,
+          variant: "destructive",
+        });
+        
+        // Add failure message to chat
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: `⚠️ ${response.message} Please check the information and try again.`,
+            timestamp: new Date(),
+          },
+        ]);
+      }
+    },
+    onError: (error) => {
+      console.error("Error creating GPU:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create GPU listing. Please try again later.",
+        variant: "destructive",
+      });
+      
+      // Add error message to chat
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: "assistant",
+          content: "I encountered an error while trying to create your GPU listing. Please try again later.",
+          timestamp: new Date(),
+        },
+      ]);
+    },
+  });
+
   // Message mutation
   const messageMutation = useMutation({
     mutationFn: sendMessage,
     onSuccess: (botResponse) => {
       setMessages((prev) => [...prev, botResponse]);
+      
+      // Check for potential GPU listing creation instructions in the bot response
+      const content = botResponse.content.toLowerCase();
+      
+      // If the bot seems to be confirming a GPU creation and we extracted the data
+      if (content.includes("creating") && content.includes("gpu") && content.includes("listing")) {
+        const gpuData = extractGpuDataFromMessages(messages);
+        if (gpuData && user) {
+          gpuCreateMutation.mutate(gpuData);
+        }
+      }
     },
     onError: (error) => {
       console.error("Error sending message:", error);
@@ -125,6 +236,83 @@ export default function ChatWithCori() {
       ]);
     },
   });
+  
+  // Helper function to extract GPU data from conversation
+  const extractGpuDataFromMessages = (messages: Message[]): CreateGpuRequest | null => {
+    try {
+      // This is a simple implementation that looks for specific patterns
+      // A production system would use more sophisticated NLP methods
+      
+      let name: string | null = null;
+      let manufacturer: string | null = null;
+      let vram: number | null = null;
+      let pricePerHour: number | null = null;
+      let description: string | null = null;
+      let technicalSpecs: Record<string, any> = {};
+      
+      // Look for patterns in the last 10 messages
+      const recentMessages = messages.slice(-10);
+      
+      for (const msg of recentMessages) {
+        const content = msg.content.toLowerCase();
+        
+        // Extract GPU name
+        const nameMatch = content.match(/name\s*:\s*([a-zA-Z0-9 ]+)/) || 
+                          content.match(/gpu\s+is\s+(?:a\s+)?([a-zA-Z0-9 ]+)/) || 
+                          content.match(/called\s+(?:a\s+)?([a-zA-Z0-9 ]+)/);
+        if (nameMatch && !name) name = nameMatch[1].trim();
+        
+        // Extract manufacturer
+        const manufacturerMatch = content.match(/manufacturer\s*:\s*([a-zA-Z0-9 ]+)/) || 
+                                 content.match(/made by\s+([a-zA-Z0-9 ]+)/) || 
+                                 content.match(/from\s+([a-zA-Z0-9 ]+)/);
+        if (manufacturerMatch && !manufacturer) manufacturer = manufacturerMatch[1].trim();
+        
+        // Extract VRAM
+        const vramMatch = content.match(/vram\s*:\s*(\d+)/) || 
+                         content.match(/(\d+)\s*gb\s+vram/) || 
+                         content.match(/memory\s*:\s*(\d+)/);
+        if (vramMatch && !vram) vram = parseInt(vramMatch[1]);
+        
+        // Extract price per hour
+        const priceMatch = content.match(/price\s*:\s*\$?(\d+\.?\d*)/) || 
+                          content.match(/\$(\d+\.?\d*)\s*\/\s*hour/) || 
+                          content.match(/(\d+\.?\d*)\s*dollars/);
+        if (priceMatch && !pricePerHour) pricePerHour = parseFloat(priceMatch[1]);
+        
+        // Extract description
+        const descMatch = content.match(/description\s*:\s*(.+)$/);
+        if (descMatch && !description) description = descMatch[1].trim();
+        
+        // Extract technical specs
+        const cudaCoresMatch = content.match(/cuda\s+cores\s*:\s*(\d+)/);
+        if (cudaCoresMatch) technicalSpecs.cudaCores = parseInt(cudaCoresMatch[1]);
+        
+        const baseClockMatch = content.match(/base\s+clock\s*:\s*(\d+\.?\d*)/);
+        if (baseClockMatch) technicalSpecs.baseClock = parseFloat(baseClockMatch[1]);
+        
+        const boostClockMatch = content.match(/boost\s+clock\s*:\s*(\d+\.?\d*)/);
+        if (boostClockMatch) technicalSpecs.boostClock = parseFloat(boostClockMatch[1]);
+      }
+      
+      // If we have the minimum required data, return the GPU request
+      if (name && manufacturer && vram && pricePerHour) {
+        return {
+          name,
+          manufacturer,
+          vram,
+          pricePerHour,
+          description: description || undefined,
+          technicalSpecs: Object.keys(technicalSpecs).length > 0 ? technicalSpecs : undefined
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Error extracting GPU data from messages:", error);
+      return null;
+    }
+  };
 
   const handleSendMessage = () => {
     if (!inputValue.trim() || !sessionId) return;
