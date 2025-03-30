@@ -3,12 +3,17 @@
  * 
  * This module implements the chatbot functionality for CoreShare,
  * allowing users to get information about GPU sharing and the platform.
+ * It uses the OpenRouter API to access advanced language models.
  */
 import { randomUUID } from 'crypto';
+import OpenAI from 'openai';
+import { db } from './db';
+import { gpus, rentals, reviews, payments, users } from '@shared/schema';
+import { eq } from 'drizzle-orm';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant';
+  role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: Date;
 }
@@ -17,12 +22,45 @@ interface ChatSession {
   id: string;
   messages: Message[];
   lastActivity: Date;
+  userId?: number; // Optional user ID for personalized responses
 }
 
 // Store chat sessions in memory (would use a database in production)
 const chatSessions: Record<string, ChatSession> = {};
 
-// Knowledge base for Cori
+// Initialize OpenAI client with OpenRouter API key
+const openai = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    'HTTP-Referer': 'https://coreshare.com', // Replace with actual domain
+    'X-Title': 'CoreShare Assistant'
+  }
+});
+
+// System prompt for Cori
+const SYSTEM_PROMPT = `You are Cori, the helpful AI assistant for CoreShare, a platform for renting and sharing GPUs.
+You help users understand how the platform works and provide information about available GPUs,
+pricing, and the GPU rental/sharing process. You can also analyze GPU specifications and 
+make recommendations based on user needs.
+
+The CoreShare platform allows:
+- GPU owners to rent out their hardware when not in use
+- Users to rent high-performance GPUs for computing tasks
+- Secure payment processing and user verification
+- Reviews and ratings for GPUs and renters
+
+When responding:
+- Be friendly, helpful, and concise
+- Provide specific information about available GPUs when asked
+- Explain the rental and sharing process
+- Help users understand GPU specifications and what they mean
+- Assist with troubleshooting common issues
+
+If you don't know an answer, admit it rather than making up information.
+`;
+
+// Knowledge base for quick reference (used for fallback if API fails)
 const knowledgeBase = {
   greeting: [
     "Hi there! I'm Cori, your CoreShare assistant. How can I help you today?",
@@ -34,49 +72,30 @@ const knowledgeBase = {
     "Our platform enables GPU owners to earn money by renting out their hardware when it's not in use.",
     "You can find high-performance GPUs for rent at competitive prices on CoreShare."
   ],
-  pricing: [
-    "GPU rental prices are set by the owners, usually on a per-hour basis.",
-    "Prices vary based on the GPU model, performance, and availability.",
-    "You can see the hourly rate for each GPU on its listing page."
-  ],
-  howToRent: [
-    "To rent a GPU, simply browse available units, select one that meets your needs, and click 'Rent'.",
-    "You'll need to create an account and provide payment information before renting.",
-    "Once your rental is approved, you'll get access information for the GPU."
-  ],
-  howToShare: [
-    "To share your GPU, go to 'My GPUs' and click 'Add New GPU'.",
-    "You'll need to provide details about your GPU including model, specifications, and pricing.",
-    "Once listed, renters can find and request to use your GPU."
-  ],
-  paymentMethods: [
-    "CoreShare supports credit/debit cards and M-Pesa for payments.",
-    "All transactions are secure and protected."
-  ],
-  security: [
-    "CoreShare uses secure connections and encryption to protect your data.",
-    "We have security measures in place to ensure safe GPU sharing."
-  ],
-  support: [
-    "For technical support, please email support@coreshare.com",
-    "Our support team is available Monday through Friday, 9 AM to 5 PM EAT."
-  ],
   fallback: [
-    "I'm not sure I understand. Could you rephrase your question?",
-    "I don't have information on that specific topic. Is there something else I can help with?",
-    "I'm still learning and don't have an answer for that yet. Can I help with something else?"
+    "I'm having trouble connecting to my knowledge base right now. Could you try again in a moment?",
+    "I apologize, but my advanced features are temporarily unavailable. I can still help with basic questions about CoreShare.",
+    "Sorry, I'm experiencing a connection issue. Please try your question again shortly."
   ]
 };
 
 /**
  * Creates a new chat session
  */
-export function createChatSession(): string {
+export function createChatSession(userId?: number): string {
   const sessionId = randomUUID();
+  const systemMessage: Message = {
+    id: randomUUID(),
+    role: 'system',
+    content: SYSTEM_PROMPT,
+    timestamp: new Date()
+  };
+  
   chatSessions[sessionId] = {
     id: sessionId,
-    messages: [],
-    lastActivity: new Date()
+    messages: [systemMessage],
+    lastActivity: new Date(),
+    userId: userId
   };
   return sessionId;
 }
@@ -94,13 +113,15 @@ export function getChatSession(sessionId: string): ChatSession | undefined {
 export function getChatMessages(sessionId: string): Message[] | null {
   const session = chatSessions[sessionId];
   if (!session) return null;
-  return session.messages;
+  
+  // Filter out system messages for client-side display
+  return session.messages.filter(msg => msg.role !== 'system');
 }
 
 /**
  * Process a user message and generate a response
  */
-export function processMessage(sessionId: string, message: string): Message {
+export async function processMessage(sessionId: string, message: string): Promise<Message> {
   // Get or create session
   let session = chatSessions[sessionId];
   if (!session) {
@@ -119,23 +140,144 @@ export function processMessage(sessionId: string, message: string): Message {
   session.messages.push(userMessage);
   session.lastActivity = new Date();
 
-  // Generate response
-  const response = generateResponse(message);
-  const botMessage: Message = {
-    id: randomUUID(),
-    role: 'assistant',
-    content: response,
-    timestamp: new Date()
-  };
-  
-  session.messages.push(botMessage);
-  return botMessage;
+  try {
+    // Prepare conversation history for API call
+    const conversationHistory = session.messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }));
+
+    // Get real-time GPU data for context
+    const contextData = await getContextData(session.userId);
+    if (contextData) {
+      // Add context as a system message
+      const contextMessage: Message = {
+        id: randomUUID(),
+        role: 'system',
+        content: `Current CoreShare data for reference:\n${contextData}`,
+        timestamp: new Date()
+      };
+      
+      // Add to session but don't include in history sent to API
+      session.messages.push(contextMessage);
+      conversationHistory.push({
+        role: contextMessage.role,
+        content: contextMessage.content
+      });
+    }
+
+    // Call OpenAI API via OpenRouter
+    const response = await openai.chat.completions.create({
+      model: 'openai/gpt-3.5-turbo', // Can be upgraded to more powerful models
+      messages: conversationHistory,
+      temperature: 0.7,
+      max_tokens: 1000
+    });
+
+    // Get bot response
+    const botResponse = response.choices[0].message.content || randomResponse(knowledgeBase.fallback);
+    
+    // Create bot message
+    const botMessage: Message = {
+      id: randomUUID(),
+      role: 'assistant',
+      content: botResponse,
+      timestamp: new Date()
+    };
+    
+    // Add to session
+    session.messages.push(botMessage);
+    return botMessage;
+  } catch (error) {
+    console.error('Error calling AI API:', error);
+    
+    // Fallback to basic response if API fails
+    const fallbackMessage: Message = {
+      id: randomUUID(),
+      role: 'assistant',
+      content: generateFallbackResponse(message),
+      timestamp: new Date()
+    };
+    
+    session.messages.push(fallbackMessage);
+    return fallbackMessage;
+  }
 }
 
 /**
- * Generate a response based on user input
+ * Get contextual data from the database to enhance chatbot responses
  */
-function generateResponse(message: string): string {
+async function getContextData(userId?: number): Promise<string | null> {
+  try {
+    // Get available GPUs
+    const availableGpus = await db.select({
+      id: gpus.id,
+      name: gpus.name,
+      manufacturer: gpus.manufacturer,
+      vram: gpus.vram,
+      pricePerHour: gpus.pricePerHour,
+      available: gpus.available
+    }).from(gpus)
+      .where(eq(gpus.available, true))
+      .limit(10);
+    
+    // Get user-specific data if authenticated
+    let userData = null;
+    if (userId) {
+      // Get user's active rentals if any
+      const userRentals = await db.select().from(rentals)
+        .where(eq(rentals.renterId, userId))
+        .limit(5);
+      
+      // Get user's own GPUs if any
+      const userGpus = await db.select().from(gpus)
+        .where(eq(gpus.ownerId, userId))
+        .limit(5);
+      
+      userData = {
+        rentals: userRentals,
+        gpus: userGpus
+      };
+    }
+    
+    // Format the data as a string
+    let contextString = "Available GPUs:\n";
+    
+    if (availableGpus.length > 0) {
+      availableGpus.forEach(gpu => {
+        contextString += `- ${gpu.name} (${gpu.manufacturer}): ${gpu.vram}GB VRAM, $${gpu.pricePerHour}/hour\n`;
+      });
+    } else {
+      contextString += "No GPUs are currently available for rent.\n";
+    }
+    
+    if (userData) {
+      if (userData.rentals.length > 0) {
+        contextString += "\nUser's Active Rentals:\n";
+        userData.rentals.forEach(rental => {
+          contextString += `- Rental #${rental.id}: GPU ID ${rental.gpuId}, Status: ${rental.status}\n`;
+        });
+      }
+      
+      if (userData.gpus.length > 0) {
+        contextString += "\nUser's Listed GPUs:\n";
+        userData.gpus.forEach(gpu => {
+          contextString += `- ${gpu.name}: $${gpu.pricePerHour}/hour, Available: ${gpu.available ? 'Yes' : 'No'}\n`;
+        });
+      }
+    }
+    
+    return contextString;
+  } catch (error) {
+    console.error('Error fetching context data:', error);
+    return null;
+  }
+}
+
+/**
+ * Generate a fallback response based on user input (used when API fails)
+ */
+function generateFallbackResponse(message: string): string {
   const normalizedMessage = message.toLowerCase();
   
   // Check for greeting
@@ -146,36 +288,6 @@ function generateResponse(message: string): string {
   // Check for questions about CoreShare/GPU sharing
   if (containsAny(normalizedMessage, ['what is coreshare', 'about coreshare', 'gpu sharing', 'platform'])) {
     return randomResponse(knowledgeBase.gpuSharing);
-  }
-  
-  // Pricing questions
-  if (containsAny(normalizedMessage, ['price', 'cost', 'how much', 'pricing'])) {
-    return randomResponse(knowledgeBase.pricing);
-  }
-  
-  // How to rent
-  if (containsAny(normalizedMessage, ['how to rent', 'rent gpu', 'renting', 'use gpu'])) {
-    return randomResponse(knowledgeBase.howToRent);
-  }
-  
-  // How to share
-  if (containsAny(normalizedMessage, ['how to share', 'share gpu', 'sharing', 'provide gpu', 'list gpu'])) {
-    return randomResponse(knowledgeBase.howToShare);
-  }
-  
-  // Payment methods
-  if (containsAny(normalizedMessage, ['payment', 'pay', 'transaction', 'mpesa', 'credit card'])) {
-    return randomResponse(knowledgeBase.paymentMethods);
-  }
-  
-  // Security
-  if (containsAny(normalizedMessage, ['secure', 'security', 'safe', 'protection'])) {
-    return randomResponse(knowledgeBase.security);
-  }
-  
-  // Support
-  if (containsAny(normalizedMessage, ['support', 'help', 'contact', 'issue', 'problem'])) {
-    return randomResponse(knowledgeBase.support);
   }
   
   // Fallback response if no matches

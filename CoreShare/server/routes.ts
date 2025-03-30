@@ -540,7 +540,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new chat session
   app.post("/api/chat/session", async (req, res) => {
     try {
-      const sessionId = chatbot.createChatSession();
+      // Pass user ID if authenticated
+      const userId = req.isAuthenticated() ? req.user?.id : undefined;
+      const sessionId = chatbot.createChatSession(userId);
       res.json({ sessionId });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -556,10 +558,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "Session ID and message are required" });
       }
       
-      const response = chatbot.processMessage(sessionId, message);
+      // Process message now returns a Promise
+      const response = await chatbot.processMessage(sessionId, message);
       res.json(response);
     } catch (error: any) {
-      res.status(500).json({ message: error.message });
+      console.error("Error processing chat message:", error);
+      res.status(500).json({ message: error.message || "Error processing message" });
     }
   });
   
