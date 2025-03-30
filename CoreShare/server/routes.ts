@@ -52,6 +52,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Endpoint to get frequently listed GPUs
+  app.get("/api/gpus/frequent", async (req, res) => {
+    try {
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 5;
+      const gpus = await storage.getFrequentlyListedGpus(limit);
+      res.json(gpus);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
+  // Endpoint to trigger AI analysis of GPU usage
+  app.post("/api/gpus/analyze", isAuthenticated, hasRole(["admin"]), async (req, res) => {
+    try {
+      await storage.analyzeGpuUsage();
+      res.json({ success: true, message: "GPU usage analysis completed" });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+  
   // Get GPU by ID
   app.get("/api/gpus/:id", async (req, res) => {
     try {
@@ -215,6 +236,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         type: 'rental_started',
         relatedId: rental.id
       });
+      
+      // Run AI analysis in the background after each new rental
+      // This keeps the common tasks and popularity score updated
+      setTimeout(() => {
+        storage.analyzeGpuUsage().catch(err => {
+          console.error("Background AI analysis failed:", err);
+        });
+      }, 500);
       
       res.status(201).json(rental);
     } catch (error: any) {
@@ -591,7 +620,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a GPU listing via Cori chatbot
   app.post("/api/chat/create-gpu", isAuthenticated, async (req, res) => {
     try {
-      const { name, manufacturer, vram, pricePerHour, description, technicalSpecs } = req.body;
+      const { name, manufacturer, vram, pricePerHour, technicalSpecs } = req.body;
       
       if (!name || !manufacturer || !vram || !pricePerHour) {
         return res.status(400).json({ 
@@ -607,7 +636,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         manufacturer, 
         Number(vram), 
         Number(pricePerHour),
-        description,
         technicalSpecs
       );
       

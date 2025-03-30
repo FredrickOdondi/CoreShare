@@ -23,6 +23,15 @@ export interface IStorage {
   deleteGpu(id: number): Promise<boolean>;
   getGpusByOwnerId(ownerId: number): Promise<Gpu[]>;
   
+  // GPU Analytics methods
+  analyzeGpuUsage(): Promise<void>;
+  getGpuTaskAnalysis(gpuId: number): Promise<{ 
+    popularityScore: number | null; 
+    commonTasks: string | null;
+    lastAnalyzed: Date | null;
+  }>;
+  getFrequentlyListedGpus(limit?: number): Promise<Gpu[]>;
+  
   // Rental methods
   getRental(id: number): Promise<Rental | undefined>;
   listRentals(): Promise<Rental[]>;
@@ -30,6 +39,7 @@ export interface IStorage {
   updateRental(id: number, data: Partial<Rental>): Promise<Rental | undefined>;
   getRentalsByRenterId(renterId: number): Promise<Rental[]>;
   getActiveRentalsByRenterId(renterId: number): Promise<Rental[]>;
+  getRentalsByGpuId(gpuId: number): Promise<Rental[]>;
   
   // Review methods
   getReview(id: number): Promise<Review | undefined>;
@@ -277,7 +287,11 @@ export class PostgresStorage implements IStorage {
       coolingSystem: dbGpu.cooling_system,
       memoryType: dbGpu.memory_type,
       psuRecommendation: dbGpu.psu_recommendation,
-      powerConnectors: dbGpu.power_connectors
+      powerConnectors: dbGpu.power_connectors,
+      // AI analysis fields
+      popularityScore: dbGpu.popularity_score,
+      commonTasks: dbGpu.common_tasks,
+      lastAnalyzed: dbGpu.last_analyzed
     };
   }
   
@@ -361,6 +375,108 @@ export class PostgresStorage implements IStorage {
   
   async getGpusByOwnerId(ownerId: number): Promise<Gpu[]> {
     const result = await pool.query('SELECT * FROM gpus WHERE owner_id = $1', [ownerId]);
+    return result.rows.map(gpu => this.mapDatabaseGpuToGpuModel(gpu));
+  }
+  
+  // AI Analysis methods
+  async analyzeGpuUsage(): Promise<void> {
+    try {
+      // 1. Get all GPUs
+      const gpus = await this.listGpus();
+      
+      for (const gpu of gpus) {
+        // 2. Get rentals for this GPU
+        const rentals = await this.getRentalsByGpuId(gpu.id);
+        
+        // 3. If there are no rentals, skip this GPU
+        if (rentals.length === 0) {
+          continue;
+        }
+        
+        // 4. Calculate popularity score (based on rental frequency)
+        const popularityScore = Math.min(100, Math.floor((rentals.length / gpus.length) * 100));
+        
+        // 5. Analyze common tasks
+        const tasks = rentals
+          .filter(rental => rental.task) // Filter out null tasks
+          .map(rental => rental.task?.toLowerCase().trim()) // Normalize tasks
+          .filter((task): task is string => !!task); // Filter out undefined and null
+        
+        // Group tasks by frequency
+        const taskFrequency: Record<string, number> = {};
+        tasks.forEach(task => {
+          if (task in taskFrequency) {
+            taskFrequency[task]++;
+          } else {
+            taskFrequency[task] = 1;
+          }
+        });
+        
+        // Sort tasks by frequency (most common first)
+        const sortedTasks = Object.entries(taskFrequency)
+          .sort((a, b) => b[1] - a[1])
+          .map(([task]) => task)
+          .slice(0, 3); // Get top 3 tasks
+        
+        // Format common tasks string
+        const commonTasks = sortedTasks.length > 0 
+          ? sortedTasks.join(', ')
+          : null;
+        
+        // 6. Update GPU with analysis results
+        await pool.query(`
+          UPDATE gpus 
+          SET 
+            popularity_score = $1,
+            common_tasks = $2,
+            last_analyzed = NOW()
+          WHERE id = $3
+        `, [popularityScore, commonTasks, gpu.id]);
+      }
+    } catch (error) {
+      console.error('Error analyzing GPU usage:', error);
+    }
+  }
+  
+  async getRentalsByGpuId(gpuId: number): Promise<Rental[]> {
+    const result = await pool.query('SELECT * FROM rentals WHERE gpu_id = $1', [gpuId]);
+    return result.rows.map(rental => this.mapDatabaseRentalToRentalModel(rental));
+  }
+  
+  async getGpuTaskAnalysis(gpuId: number): Promise<{ 
+    popularityScore: number | null; 
+    commonTasks: string | null;
+    lastAnalyzed: Date | null;
+  }> {
+    const result = await pool.query(`
+      SELECT popularity_score, common_tasks, last_analyzed
+      FROM gpus
+      WHERE id = $1
+    `, [gpuId]);
+    
+    if (result.rows.length === 0) {
+      return {
+        popularityScore: null,
+        commonTasks: null,
+        lastAnalyzed: null
+      };
+    }
+    
+    return {
+      popularityScore: result.rows[0].popularity_score,
+      commonTasks: result.rows[0].common_tasks,
+      lastAnalyzed: result.rows[0].last_analyzed
+    };
+  }
+  
+  async getFrequentlyListedGpus(limit: number = 5): Promise<Gpu[]> {
+    const result = await pool.query(`
+      SELECT * FROM gpus
+      WHERE popularity_score IS NOT NULL
+      ORDER BY popularity_score DESC
+      LIMIT $1
+    `, [limit]);
+    
     return result.rows.map(gpu => this.mapDatabaseGpuToGpuModel(gpu));
   }
   

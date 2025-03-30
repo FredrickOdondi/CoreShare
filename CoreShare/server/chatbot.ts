@@ -348,7 +348,6 @@ export async function createGpuListing(
   manufacturer: string,
   vram: number,
   pricePerHour: number,
-  description?: string,
   technicalSpecs?: Record<string, any>
 ): Promise<{ success: boolean; message: string; gpuId?: number }> {
   try {
@@ -375,13 +374,16 @@ export async function createGpuListing(
       specs = { ...technicalSpecs };
     }
     
-    // Create GPU listing
+    console.log(`Creating GPU listing for: ${name} (${manufacturer}) with ${vram}GB VRAM at $${pricePerHour}/hr`);
+    
+    // Create GPU listing with available set to true by default
     const newGpu = await storage.createGpu({
       name,
       manufacturer,
       vram,
       pricePerHour,
       ownerId: userId,
+      available: true, // Explicitly set available to true
       // Optional technical specifications - if provided in the request
       cudaCores: technicalSpecs?.cudaCores ? Number(technicalSpecs.cudaCores) : undefined,
       baseClock: technicalSpecs?.baseClock ? Number(technicalSpecs.baseClock) : undefined,
@@ -394,6 +396,8 @@ export async function createGpuListing(
       psuRecommendation: technicalSpecs?.psuRecommendation ? Number(technicalSpecs.psuRecommendation) : undefined,
       powerConnectors: technicalSpecs?.powerConnectors || undefined
     });
+    
+    console.log(`Successfully created GPU with ID: ${newGpu.id}`);
     
     // Create a notification for the user
     await storage.createNotification({

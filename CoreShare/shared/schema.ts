@@ -36,6 +36,10 @@ export const gpus = pgTable("gpus", {
   memoryType: text("memory_type"), // e.g., GDDR6X
   psuRecommendation: integer("psu_recommendation"), // Recommended PSU wattage
   powerConnectors: text("power_connectors"), // e.g., "1x 8-pin + 1x 6-pin"
+  // AI analysis fields
+  popularityScore: integer("popularity_score"),
+  commonTasks: text("common_tasks"),
+  lastAnalyzed: timestamp("last_analyzed"),
 });
 
 // Rental table
