@@ -183,6 +183,28 @@ export function MPesaPaymentForm({ rentalId, gpuName, amount, onSuccess, onCance
       }
     };
     
+    // Auto-complete payment in test mode after 8 seconds
+    // This is only for development to avoid endless waiting
+    if (import.meta.env.DEV) {
+      setTimeout(async () => {
+        console.log("Auto-completing payment in test mode...");
+        try {
+          const response = await apiRequest('POST', `/api/test/mpesa-callback`, {
+            rentalId: rentalId,
+            success: true
+          });
+          
+          if (response.ok) {
+            console.log("Test payment auto-completed successfully");
+            // Force a status check
+            checkStatus();
+          }
+        } catch (err) {
+          console.error("Failed to auto-complete payment in test mode:", err);
+        }
+      }, 8000);
+    }
+    
     // Start polling
     poll();
   };

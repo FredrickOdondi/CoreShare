@@ -178,9 +178,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "You don't own this GPU" });
       }
       
-      // Check if GPU is currently rented
+      // Check if GPU is currently rented or has pending payments
       if (!gpu.available) {
         return res.status(400).json({ message: "Cannot delete a GPU that is currently rented" });
+      }
+      
+      // Check if the GPU has any pending rentals in requires_payment status
+      const pendingRentals = await storage.getRentalsByGpuId(id);
+      if (pendingRentals.some(rental => rental.status === "requires_payment")) {
+        return res.status(400).json({ message: "Cannot delete a GPU that has pending payment rentals" });
       }
       
       await storage.deleteGpu(id);

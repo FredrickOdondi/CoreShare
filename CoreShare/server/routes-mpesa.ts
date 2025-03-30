@@ -161,10 +161,10 @@ export async function registerMPesaRoutes(app: Express): Promise<void> {
         return res.status(404).json({ message: "Rental not found" });
       }
       
-      // Verify that the rental is in approved status
-      if (rental.status !== "approved") {
+      // Verify that the rental is in requires_payment status
+      if (rental.status !== "requires_payment") {
         return res.status(400).json({ 
-          message: "Only approved rentals can be paid for" 
+          message: "Only rentals requiring payment can be paid for" 
         });
       }
       

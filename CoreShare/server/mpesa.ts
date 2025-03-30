@@ -23,8 +23,9 @@ const MPESA_PASSKEY = process.env.MPESA_PASSKEY;
 const REPLIT_DOMAIN = process.env.REPLIT_DOMAINS ? process.env.REPLIT_DOMAINS.split(',')[0] : 'localhost:5000';
 const CALLBACK_URL = process.env.MPESA_CALLBACK_URL || `https://${REPLIT_DOMAIN}/api/callback/mpesa`;
 
-// Test mode for development - set to false in production
+// Test mode for development - set to false to send real payment requests
 const TEST_MODE = process.env.NODE_ENV !== 'production';
+// const TEST_MODE = false; // Only use in production with valid M-Pesa credentials
 
 // Input validation schemas
 export const stkPushRequestSchema = z.object({
