@@ -1404,11 +1404,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/videos/:id', async (req, res) => {
     try {
       const videoId = parseInt(req.params.id);
-      const video = await storage.getVideo(videoId);
+      let video = await storage.getVideo(videoId);
       
       if (!video) {
         return res.status(404).json({ message: 'Video not found' });
       }
+      
+      // Increment view count when fetching video details
+      video = await storage.incrementViewCount(videoId) || video;
       
       res.json(video);
     } catch (error) {
@@ -1543,6 +1546,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Admin routes for video management have been removed
   // No approval process is needed as videos are published immediately
+  
+  // Endpoint to increment video view count
+  app.post('/api/videos/:id/view', async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+      if (isNaN(videoId)) {
+        return res.status(400).json({ message: 'Invalid video ID' });
+      }
+      
+      const video = await storage.getVideo(videoId);
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      // Increment the view count
+      const updatedVideo = await storage.incrementViewCount(videoId);
+      
+      res.json(updatedVideo);
+    } catch (error) {
+      console.error('Error incrementing view count:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
   
   const httpServer = createServer(app);
   return httpServer;

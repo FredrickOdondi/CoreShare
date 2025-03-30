@@ -195,13 +195,14 @@ export default function MarketplacePage() {
           </div>
           
           {/* Filters */}
-          <div className="flex flex-col md:flex-row md:items-center mb-6 space-y-3 md:space-y-0 md:space-x-4">
-            <div className="relative">
+          <div className="flex flex-wrap gap-3 mb-4 sm:mb-6">
+            {/* First row on mobile, first items on desktop */}
+            <div className="flex w-full sm:w-auto gap-2 sm:gap-3">
               <Select 
                 value={gpuType} 
                 onValueChange={setGpuType}
               >
-                <SelectTrigger className="w-full md:w-40">
+                <SelectTrigger className="h-9 text-xs sm:text-sm flex-1 sm:w-32 md:w-40">
                   <SelectValue placeholder="GPU Type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -210,14 +211,12 @@ export default function MarketplacePage() {
                   <SelectItem value="amd">AMD GPUs</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            
-            <div className="relative">
+              
               <Select 
                 value={sortBy} 
                 onValueChange={setSortBy}
               >
-                <SelectTrigger className="w-full md:w-48">
+                <SelectTrigger className="h-9 text-xs sm:text-sm flex-1 sm:w-36 md:w-48">
                   <SelectValue placeholder="Sort by" />
                 </SelectTrigger>
                 <SelectContent>
@@ -228,39 +227,43 @@ export default function MarketplacePage() {
               </Select>
             </div>
             
-            <div className="flex flex-col md:flex-row items-start md:items-center space-y-2 md:space-y-0 md:space-x-2 flex-grow">
-              <span className="text-muted-foreground text-sm whitespace-nowrap">Price Range:</span>
-              <div className="w-full flex items-center space-x-4">
-                <Slider
-                  value={[maxPrice]}
-                  max={100}
-                  step={1}
-                  onValueChange={(value) => setMaxPrice(value[0])}
-                  className="w-full md:max-w-[200px]"
+            {/* Second row on mobile, search and price range */}
+            <div className="flex flex-wrap w-full sm:flex-1 gap-3">
+              {/* Search - visible on all screens */}
+              <div className="w-full sm:w-auto sm:flex-1 sm:max-w-sm">
+                <Input
+                  type="text"
+                  placeholder="Search GPUs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-9 text-xs sm:text-sm w-full"
                 />
-                <span className="text-sm whitespace-nowrap">≤ Ksh {maxPrice}/hr</span>
+              </div>
+              
+              {/* Price range slider */}
+              <div className="w-full sm:w-auto sm:flex-1 flex items-center gap-2">
+                <span className="text-muted-foreground text-xs whitespace-nowrap">Price:</span>
+                <div className="flex-1 flex items-center gap-2">
+                  <Slider
+                    value={[maxPrice]}
+                    max={100}
+                    step={1}
+                    onValueChange={(value) => setMaxPrice(value[0])}
+                    className="flex-1"
+                  />
+                  <span className="text-xs whitespace-nowrap">≤{maxPrice}Ksh/h</span>
+                </div>
               </div>
             </div>
           </div>
           
-          {/* Mobile Search - only visible on mobile */}
-          <div className="md:hidden relative mb-4">
-            <Input
-              type="text"
-              placeholder="Search GPUs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full"
-            />
-          </div>
-          
           {/* GPU Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
             {isLoadingGpus ? (
               Array(6).fill(0).map((_, index) => (
                 <div 
                   key={index}
-                  className="h-[280px] bg-card rounded-xl animate-pulse"
+                  className="h-[240px] sm:h-[280px] bg-card rounded-xl animate-pulse"
                 />
               ))
             ) : filteredGpus && filteredGpus.length > 0 ? (
@@ -273,10 +276,11 @@ export default function MarketplacePage() {
                   />
                   <Button 
                     variant="ghost" 
-                    className="mt-2" 
+                    className="mt-1 sm:mt-2 h-8 sm:h-9 text-xs sm:text-sm w-full" 
                     onClick={() => handleViewDetails(gpu.id)}
                   >
-                    View Details & Reviews
+                    <span className="sm:inline hidden">View Details & Reviews</span>
+                    <span className="inline sm:hidden">Details & Reviews</span>
                   </Button>
                 </div>
               ))
@@ -291,41 +295,47 @@ export default function MarketplacePage() {
       
       {/* Rental Dialog */}
       <Dialog open={rentalDialogOpen} onOpenChange={setRentalDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-[425px]">
           <DialogHeader>
-            <DialogTitle>Rent GPU: {selectedGpu?.name}</DialogTitle>
-            <DialogDescription>
+            <DialogTitle className="text-base sm:text-lg">Rent GPU: {selectedGpu?.name}</DialogTitle>
+            <DialogDescription className="text-xs sm:text-sm">
               Enter details to rent this GPU. You will be charged Ksh {selectedGpu?.pricePerHour} per hour.
             </DialogDescription>
           </DialogHeader>
           
           <Form {...rentalForm}>
-            <form onSubmit={rentalForm.handleSubmit(onRentalSubmit)} className="space-y-4">
+            <form onSubmit={rentalForm.handleSubmit(onRentalSubmit)} className="space-y-3 sm:space-y-4">
               <FormField
                 control={rentalForm.control}
                 name="task"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Task Description</FormLabel>
+                    <FormLabel className="text-xs sm:text-sm">Task Description</FormLabel>
                     <FormControl>
-                      <Input placeholder="e.g., ML Training, Rendering, etc." {...field} />
+                      <Input 
+                        placeholder="e.g., ML Training, Rendering, etc." 
+                        className="h-8 sm:h-9 text-xs sm:text-sm" 
+                        {...field} 
+                      />
                     </FormControl>
-                    <FormMessage />
+                    <FormMessage className="text-xs" />
                   </FormItem>
                 )}
               />
               
-              <DialogFooter>
+              <DialogFooter className="gap-2 sm:gap-0 flex-col-reverse sm:flex-row sm:justify-end mt-2">
                 <Button 
                   type="button" 
                   variant="outline" 
                   onClick={() => setRentalDialogOpen(false)}
+                  className="w-full sm:w-auto h-8 sm:h-9 text-xs sm:text-sm sm:order-1"
                 >
                   Cancel
                 </Button>
                 <Button 
                   type="submit"
                   disabled={rentGpuMutation.isPending}
+                  className="w-full sm:w-auto h-8 sm:h-9 text-xs sm:text-sm sm:order-2"
                 >
                   {rentGpuMutation.isPending ? "Processing..." : "Rent Now"}
                 </Button>
@@ -347,33 +357,35 @@ export default function MarketplacePage() {
                 </DialogDescription>
               </DialogHeader>
               
-              <Tabs defaultValue="details" className="w-full mt-4">
-                <TabsList className="mb-4">
-                  <TabsTrigger value="details">GPU Details</TabsTrigger>
-                  <TabsTrigger value="thermal">Thermal Info</TabsTrigger>
-                  <TabsTrigger value="reviews">Reviews & Ratings</TabsTrigger>
-                </TabsList>
+              <Tabs defaultValue="details" className="w-full mt-2 sm:mt-4">
+                <div className="overflow-x-auto pb-1">
+                  <TabsList className="mb-2 sm:mb-4 w-auto inline-flex sm:flex">
+                    <TabsTrigger value="details" className="text-xs sm:text-sm">GPU Details</TabsTrigger>
+                    <TabsTrigger value="thermal" className="text-xs sm:text-sm">Thermal Info</TabsTrigger>
+                    <TabsTrigger value="reviews" className="text-xs sm:text-sm">Reviews</TabsTrigger>
+                  </TabsList>
+                </div>
                 
                 {/* Details Tab */}
-                <TabsContent value="details" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <TabsContent value="details" className="space-y-3 sm:space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <h3 className="font-medium mb-2">Basic Information</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
+                      <h3 className="text-sm sm:text-base font-medium mb-1 sm:mb-2">Basic Information</h3>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 sm:gap-2 text-xs sm:text-sm">
                         <div>
-                          <p className="text-muted-foreground">Manufacturer</p>
-                          <p className="font-medium">{selectedGpu.manufacturer}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Manufacturer</p>
+                          <p className="font-medium truncate">{selectedGpu.manufacturer}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Model</p>
-                          <p className="font-medium">{selectedGpu.name}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Model</p>
+                          <p className="font-medium truncate">{selectedGpu.name}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">VRAM</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">VRAM</p>
                           <p className="font-medium">{selectedGpu.vram} GB</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Status</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Status</p>
                           <p className={`font-medium ${selectedGpu.available ? "text-green-500" : "text-orange-500"}`}>
                             {selectedGpu.available ? "Available" : "In Use"}
                           </p>
@@ -382,34 +394,34 @@ export default function MarketplacePage() {
                     </div>
                     
                     <div>
-                      <h3 className="font-medium mb-2">Performance</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
+                      <h3 className="text-sm sm:text-base font-medium mb-1 sm:mb-2">Performance</h3>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 sm:gap-2 text-xs sm:text-sm">
                         <div>
-                          <p className="text-muted-foreground">CUDA Cores</p>
-                          <p className="font-medium">{selectedGpu.cudaCores?.toLocaleString() || "N/A"}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">CUDA Cores</p>
+                          <p className="font-medium truncate">{selectedGpu.cudaCores?.toLocaleString() || "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Base Clock</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Base Clock</p>
                           <p className="font-medium">{selectedGpu.baseClock ? `${selectedGpu.baseClock} GHz` : "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Boost Clock</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Boost Clock</p>
                           <p className="font-medium">{selectedGpu.boostClock ? `${selectedGpu.boostClock} GHz` : "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Memory Type</p>
-                          <p className="font-medium">{selectedGpu.memoryType || "N/A"}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Memory Type</p>
+                          <p className="font-medium truncate">{selectedGpu.memoryType || "N/A"}</p>
                         </div>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="pt-4 border-t border-border">
-                    <h3 className="font-medium mb-2">Rental Information</h3>
-                    <div className="flex justify-between items-center">
+                  <div className="pt-3 sm:pt-4 border-t border-border">
+                    <h3 className="text-sm sm:text-base font-medium mb-1 sm:mb-2">Rental Information</h3>
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
                       <div>
-                        <p className="text-muted-foreground">Price</p>
-                        <p className="text-xl font-semibold text-primary">Ksh {selectedGpu.pricePerHour} / hour</p>
+                        <p className="text-muted-foreground text-[10px] sm:text-xs">Price</p>
+                        <p className="text-base sm:text-xl font-semibold text-primary">Ksh {selectedGpu.pricePerHour} / hour</p>
                       </div>
                       
                       <Button
@@ -418,6 +430,7 @@ export default function MarketplacePage() {
                           setRentalDialogOpen(true);
                         }}
                         disabled={!selectedGpu.available || (user?.role !== "renter" && user?.role !== "both")}
+                        className="w-full sm:w-auto h-9 text-xs sm:text-sm"
                       >
                         Rent Now
                       </Button>
@@ -426,36 +439,36 @@ export default function MarketplacePage() {
                 </TabsContent>
                 
                 {/* Thermal Info Tab */}
-                <TabsContent value="thermal" className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4">
+                <TabsContent value="thermal" className="space-y-3 sm:space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div>
-                      <h3 className="font-medium mb-2">Power Specifications</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
+                      <h3 className="text-sm sm:text-base font-medium mb-1 sm:mb-2">Power Specifications</h3>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 sm:gap-2 text-xs sm:text-sm">
                         <div>
-                          <p className="text-muted-foreground">TDP</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">TDP</p>
                           <p className="font-medium">{selectedGpu.tdp ? `${selectedGpu.tdp} W` : "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">PSU Recommendation</p>
-                          <p className="font-medium">{selectedGpu.psuRecommendation ? `${selectedGpu.psuRecommendation} W` : "N/A"}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">PSU Recommendation</p>
+                          <p className="font-medium truncate">{selectedGpu.psuRecommendation ? `${selectedGpu.psuRecommendation} W` : "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Power Connectors</p>
-                          <p className="font-medium">{selectedGpu.powerConnectors || "N/A"}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Power Connectors</p>
+                          <p className="font-medium truncate">{selectedGpu.powerConnectors || "N/A"}</p>
                         </div>
                       </div>
                     </div>
                     
                     <div>
-                      <h3 className="font-medium mb-2">Thermal Characteristics</h3>
-                      <div className="grid grid-cols-2 gap-2 text-sm">
+                      <h3 className="text-sm sm:text-base font-medium mb-1 sm:mb-2">Thermal Characteristics</h3>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 sm:gap-2 text-xs sm:text-sm">
                         <div>
-                          <p className="text-muted-foreground">Max Temperature</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Max Temperature</p>
                           <p className="font-medium">{selectedGpu.maxTemp ? `${selectedGpu.maxTemp}°C` : "N/A"}</p>
                         </div>
                         <div>
-                          <p className="text-muted-foreground">Cooling Solution</p>
-                          <p className="font-medium">{selectedGpu.coolingSystem || "N/A"}</p>
+                          <p className="text-muted-foreground text-[10px] sm:text-xs">Cooling Solution</p>
+                          <p className="font-medium truncate">{selectedGpu.coolingSystem || "N/A"}</p>
                         </div>
                       </div>
                     </div>
@@ -470,10 +483,11 @@ export default function MarketplacePage() {
                 </TabsContent>
               </Tabs>
               
-              <DialogFooter>
+              <DialogFooter className="sm:justify-end">
                 <Button 
                   variant="outline" 
                   onClick={() => setDetailsDialogOpen(false)}
+                  className="w-full sm:w-auto h-8 sm:h-9 text-xs sm:text-sm"
                 >
                   Close
                 </Button>

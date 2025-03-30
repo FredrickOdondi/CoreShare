@@ -44,18 +44,18 @@ export function GpuCard({ gpu, onRent, disableRent = false, className }: GpuCard
     <>
       <Card className={cn("overflow-hidden transition-all duration-200 hover:-translate-y-1 hover:shadow-lg", className)}>
         <CardContent className="p-4">
-          <div className="flex justify-between mb-3">
+          <div className="flex flex-wrap justify-between mb-3 gap-2">
             <div className="flex items-center">
-              <div className="h-10 w-10 rounded-md bg-opacity-20 bg-primary flex items-center justify-center text-primary mr-3">
-                <Cpu className="h-6 w-6" />
+              <div className="h-8 w-8 sm:h-10 sm:w-10 rounded-md bg-opacity-20 bg-primary flex items-center justify-center text-primary mr-2 sm:mr-3 flex-shrink-0">
+                <Cpu className="h-4 w-4 sm:h-6 sm:w-6" />
               </div>
               <div>
-                <h3 className="text-base font-medium">{gpu.name}</h3>
-                <p className="text-xs text-muted-foreground">{gpu.manufacturer}</p>
+                <h3 className="text-sm sm:text-base font-medium line-clamp-1">{gpu.name}</h3>
+                <p className="text-[10px] sm:text-xs text-muted-foreground">{gpu.manufacturer}</p>
               </div>
             </div>
             <span className={cn(
-              "px-2 inline-flex text-xs leading-5 font-semibold rounded-full",
+              "px-2 inline-flex text-[10px] sm:text-xs leading-5 font-semibold rounded-full h-fit",
               gpu.available 
                 ? "bg-green-900 bg-opacity-50 text-green-300" 
                 : "bg-orange-900 bg-opacity-50 text-orange-300"
@@ -64,38 +64,38 @@ export function GpuCard({ gpu, onRent, disableRent = false, className }: GpuCard
             </span>
           </div>
           
-          <div className="grid grid-cols-2 gap-2 text-sm mb-4">
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-xs sm:text-sm mb-3 sm:mb-4">
             <div>
-              <p className="text-muted-foreground text-xs">VRAM</p>
+              <p className="text-muted-foreground text-[10px] sm:text-xs">VRAM</p>
               <p>{gpu.vram} GB</p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs">CUDA Cores</p>
-              <p>{gpu.cudaCores?.toLocaleString() || "N/A"}</p>
+              <p className="text-muted-foreground text-[10px] sm:text-xs">CUDA Cores</p>
+              <p className="truncate">{gpu.cudaCores?.toLocaleString() || "N/A"}</p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs">Base Clock</p>
+              <p className="text-muted-foreground text-[10px] sm:text-xs">Base Clock</p>
               <p>{gpu.baseClock ? `${gpu.baseClock} GHz` : "N/A"}</p>
             </div>
             <div>
-              <p className="text-muted-foreground text-xs">Boost Clock</p>
+              <p className="text-muted-foreground text-[10px] sm:text-xs">Boost Clock</p>
               <p>{gpu.boostClock ? `${gpu.boostClock} GHz` : "N/A"}</p>
             </div>
           </div>
           
           {/* AI Analysis Section - Only show if we have data */}
           {(gpu.popularityScore || gpu.commonTasks) && (
-            <div className="border-t border-b border-border py-2 mb-3">
+            <div className="border-t border-b border-border py-1 sm:py-2 mb-2 sm:mb-3">
               <div className="flex items-center mb-1">
-                <Activity className="h-3 w-3 mr-1 text-primary" />
-                <p className="text-xs font-medium">AI Analysis</p>
+                <Activity className="h-2 w-2 sm:h-3 sm:w-3 mr-1 text-primary" />
+                <p className="text-[10px] sm:text-xs font-medium">AI Analysis</p>
               </div>
               
               {/* Popularity Badge */}
               {popularityLabel && (
                 <div className="flex items-center mb-1">
-                  <Badge variant="outline" className={cn("text-[10px]", popularityBadgeColor)}>
-                    <TrendingUp className="h-2 w-2 mr-1" />
+                  <Badge variant="outline" className={cn("text-[8px] sm:text-[10px] px-1 sm:px-2 py-0 h-4 sm:h-5", popularityBadgeColor)}>
+                    <TrendingUp className="h-2 w-2 mr-0.5 sm:mr-1" />
                     {popularityLabel}
                   </Badge>
                 </div>
@@ -104,22 +104,24 @@ export function GpuCard({ gpu, onRent, disableRent = false, className }: GpuCard
               {/* Common Tasks */}
               {gpu.commonTasks && (
                 <div className="mt-1">
-                  <p className="text-[10px] text-muted-foreground">Common tasks:</p>
-                  <p className="text-xs">{gpu.commonTasks}</p>
+                  <p className="text-[8px] sm:text-[10px] text-muted-foreground">Common tasks:</p>
+                  <p className="text-[10px] sm:text-xs line-clamp-2">{gpu.commonTasks}</p>
                 </div>
               )}
             </div>
           )}
           
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-3 gap-2">
             <div>
-              <p className="text-muted-foreground text-xs">Price</p>
-              <p className="text-lg font-semibold text-primary">Ksh {gpu.pricePerHour} / hour</p>
+              <p className="text-muted-foreground text-[10px] sm:text-xs">Price</p>
+              <p className="text-base sm:text-lg font-semibold text-primary">Ksh {gpu.pricePerHour} / hour</p>
             </div>
             <Button 
               onClick={() => onRent(gpu.id)} 
               disabled={disableRent || !gpu.available}
               variant="default"
+              size="sm"
+              className="sm:h-9"
             >
               Rent Now
             </Button>
@@ -129,11 +131,12 @@ export function GpuCard({ gpu, onRent, disableRent = false, className }: GpuCard
           <Button 
             variant="outline" 
             size="sm" 
-            className="w-full mt-2 text-xs"
+            className="w-full mt-1 sm:mt-2 text-[10px] sm:text-xs"
             onClick={() => setShowThermalCalculator(true)}
           >
             <Gauge className="h-3 w-3 mr-1" />
-            Calculate Thermal Efficiency
+            <span className="sm:inline hidden">Calculate Thermal Efficiency</span>
+            <span className="inline sm:hidden">Thermal Efficiency</span>
           </Button>
         </CardContent>
       </Card>

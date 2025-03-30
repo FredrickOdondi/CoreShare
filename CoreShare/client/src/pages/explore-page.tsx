@@ -19,7 +19,7 @@ interface Video {
   channelTitle: string;
   categoryId: string;
   thumbnail?: string;
-  viewCount?: string;
+  viewCount: number;
   likeCount?: string;
   userId: number;
   createdAt: string;
@@ -129,8 +129,18 @@ export default function ExplorePage() {
     }
   };
 
-  const openVideoLink = (url: string) => {
-    window.open(url, '_blank');
+  const openVideoLink = async (url: string, videoId: number) => {
+    try {
+      // Increment view count when video is opened
+      await apiRequest("POST", `/api/videos/${videoId}/view`);
+      
+      // Open the video in a new tab
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error("Error incrementing view count:", error);
+      // Still open the video even if the view count update fails
+      window.open(url, '_blank');
+    }
   };
 
   return (
@@ -188,14 +198,16 @@ export default function ExplorePage() {
           </div>
 
           {/* Category Tabs */}
-          <Tabs defaultValue="gaming" value={activeTab} onValueChange={setActiveTab} className="mb-6">
-            <TabsList className="mb-4">
-              {categories.map((category) => (
-                <TabsTrigger key={category.id} value={category.id}>
-                  {category.title}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+          <Tabs defaultValue="gaming" value={activeTab} onValueChange={setActiveTab} className="mb-4 sm:mb-6">
+            <div className="overflow-x-auto pb-1">
+              <TabsList className="mb-2 sm:mb-4 w-auto inline-flex sm:flex">
+                {categories.map((category) => (
+                  <TabsTrigger key={category.id} value={category.id} className="text-xs sm:text-sm whitespace-nowrap">
+                    {category.title}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
 
             {loading ? (
               <div className="flex justify-center items-center h-64">
@@ -214,12 +226,12 @@ export default function ExplorePage() {
                       <SubmitVideoForm onSuccess={fetchVideos} />
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-4">
                       {category.videos.map((video) => (
-                        <Card key={video.id} className="overflow-hidden">
+                        <Card key={video.id} className="overflow-hidden h-full">
                           <div 
                             className="relative cursor-pointer group"
-                            onClick={() => openVideoLink(video.url)}
+                            onClick={() => openVideoLink(video.url, video.id)}
                           >
                             {video.thumbnail ? (
                               <img 
@@ -240,18 +252,38 @@ export default function ExplorePage() {
                               <ExternalLink className="h-10 w-10 text-white" />
                             </div>
                           </div>
-                          <CardContent className="p-4">
-                            <h3 className="font-semibold line-clamp-2 mb-2">{video.title}</h3>
-                            <div className="flex items-center text-sm text-muted-foreground mb-2">
-                              <User className="h-3 w-3 mr-1" />
-                              <span>{video.channelTitle}</span>
+                          <CardContent className="p-3 p-sm-4">
+                            <h3 className="font-semibold line-clamp-2 mb-2 text-sm sm:text-base">{video.title}</h3>
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs sm:text-sm text-muted-foreground mb-2 gap-1">
+                              <div className="flex items-center">
+                                <User className="h-3 w-3 mr-1 flex-shrink-0" />
+                                <span className="truncate">{video.channelTitle}</span>
+                              </div>
+                              <div className="flex items-center">
+                                <svg 
+                                  xmlns="http://www.w3.org/2000/svg" 
+                                  width="12" 
+                                  height="12" 
+                                  viewBox="0 0 24 24" 
+                                  fill="none" 
+                                  stroke="currentColor" 
+                                  strokeWidth="2" 
+                                  strokeLinecap="round" 
+                                  strokeLinejoin="round" 
+                                  className="mr-1 flex-shrink-0"
+                                >
+                                  <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <span>{video.viewCount || 0} views</span>
+                              </div>
                             </div>
                             
                             <Button 
                               variant="outline" 
                               size="sm" 
                               className="w-full mt-3 flex items-center gap-2"
-                              onClick={() => openVideoLink(video.url)}
+                              onClick={() => openVideoLink(video.url, video.id)}
                             >
                               <Play className="h-3 w-3" />
                               Watch on YouTube

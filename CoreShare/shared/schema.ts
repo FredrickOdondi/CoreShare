@@ -112,7 +112,7 @@ export const videos = pgTable("videos", {
   channelTitle: text("channel_title").notNull(),
   userId: integer("user_id").notNull(), // User who submitted the video
   categoryId: text("category_id").notNull(), // 'gaming', 'ai', 'rendering', 'mining'
-  viewCount: text("view_count").default("0"),
+  viewCount: integer("view_count").default(0),
   likeCount: text("like_count").default("0"),
   status: text("status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
   rejectionReason: text("rejection_reason"),

@@ -58,6 +58,7 @@ interface Video {
   categoryId: string;
   createdAt: string;
   rejectionReason?: string;
+  viewCount?: number;
 }
 
 // All videos are now published directly with "approved" status
@@ -126,8 +127,18 @@ export function MyVideos() {
     }
   }, [open]);
 
-  const openVideoLink = (url: string) => {
-    window.open(url, '_blank');
+  const openVideoLink = async (url: string, videoId: number) => {
+    try {
+      // Increment view count when video is opened
+      await apiRequest("POST", `/api/videos/${videoId}/view`);
+      
+      // Open the video in a new tab
+      window.open(url, '_blank');
+    } catch (error) {
+      console.error("Error incrementing view count:", error);
+      // Still open the video even if the view count update fails
+      window.open(url, '_blank');
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -261,6 +272,7 @@ export function MyVideos() {
                     <TableHead>Title</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Published</TableHead>
+                    <TableHead>Views</TableHead>
                     <TableHead>Date</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -278,12 +290,32 @@ export function MyVideos() {
                           Published
                         </Badge>
                       </TableCell>
+                      <TableCell>
+                        <div className="flex items-center">
+                          <svg 
+                            xmlns="http://www.w3.org/2000/svg" 
+                            width="12" 
+                            height="12" 
+                            viewBox="0 0 24 24" 
+                            fill="none" 
+                            stroke="currentColor" 
+                            strokeWidth="2" 
+                            strokeLinecap="round" 
+                            strokeLinejoin="round" 
+                            className="mr-1"
+                          >
+                            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" />
+                            <circle cx="12" cy="12" r="3" />
+                          </svg>
+                          {video.viewCount || 0}
+                        </div>
+                      </TableCell>
                       <TableCell>{formatDate(video.createdAt)}</TableCell>
                       <TableCell className="flex gap-1">
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => openVideoLink(video.url)}
+                          onClick={() => openVideoLink(video.url, video.id)}
                           title="Watch video"
                         >
                           <ExternalLink className="h-4 w-4" />

@@ -1042,6 +1042,19 @@ export class PostgresStorage implements IStorage {
     return this.mapDatabaseVideoToVideoModel(result.rows[0]);
   }
   
+  async incrementViewCount(id: number): Promise<Video | undefined> {
+    const result = await pool.query(`
+      UPDATE videos
+      SET view_count = view_count + 1
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+    
+    if (result.rows.length === 0) return undefined;
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
+  }
+  
   // Payment methods
   
   async createPayment(payment: InsertPayment): Promise<Payment> {
