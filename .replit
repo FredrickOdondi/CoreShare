@@ -1,0 +1,74 @@
+modules = ["python-3.11", "nodejs-20"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "CoreShare Setup"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "clone_and_setup"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "CoreShare App"
+
+[[workflows.workflow]]
+name = "CoreShare Setup"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python clone_and_setup.py"
+
+[[workflows.workflow]]
+name = "clone_and_setup"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python clone_and_setup.py"
+
+[[workflows.workflow]]
+name = "CoreShare App"
+author = "agent"
+
+[workflows.workflow.metadata]
+agentRequireRestartOnSave = false
+
+[[workflows.workflow.tasks]]
+task = "packager.installForAll"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd CoreShare && npm run dev"
+waitForPort = 5000
+
+[deployment]
+run = ["sh", "-c", "python clone_and_setup.py"]
+
+[[ports]]
+localPort = 5000
+externalPort = 80

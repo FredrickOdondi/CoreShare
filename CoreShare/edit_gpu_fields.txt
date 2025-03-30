@@ -1,0 +1,49 @@
+{/* Additional GPU Details Section */}
+              <div className="mt-6 mb-3">
+                <h3 className="text-sm font-medium text-foreground">Additional GPU Details (optional)</h3>
+                <p className="text-xs text-muted-foreground mt-1">These details help renters understand specifications better</p>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <FormField
+                  control={editForm.control}
+                  name="memoryType"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Memory Type</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. GDDR6X" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                
+                <FormField
+                  control={editForm.control}
+                  name="psuRecommendation"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Recommended PSU (Watts)</FormLabel>
+                      <FormControl>
+                        <Input type="number" min="0" placeholder="e.g. 750" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              
+              <FormField
+                control={editForm.control}
+                name="powerConnectors"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Power Connectors</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g. 1x 8-pin + 1x 6-pin" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
