@@ -11,7 +11,10 @@ import {
   FileCog,
   LineChart,
   DollarSign,
-  LogOut
+  LogOut,
+  Compass,
+  VideoIcon,
+  ShieldCheck
 } from "lucide-react";
 
 interface SidebarProps {
@@ -32,6 +35,7 @@ export function Sidebar({ className }: SidebarProps) {
   const navItems = [
     // Common items
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
+    { href: "/explore", label: "Explore GPU Uses", icon: Compass },
     
     // Renter items
     ...(isRenter ? [
@@ -45,6 +49,11 @@ export function Sidebar({ className }: SidebarProps) {
       { href: "/my-gpus", label: "My GPUs", icon: FileCog },
       { href: "/analytics", label: "Analytics", icon: LineChart },
       { href: "/income", label: "Income", icon: DollarSign },
+    ] : []),
+    
+    // Admin items
+    ...(user.role === "admin" ? [
+      { href: "/admin/video-management", label: "Video Management", icon: VideoIcon },
     ] : []),
   ];
 

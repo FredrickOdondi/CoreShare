@@ -7,7 +7,9 @@ import {
   insertGpuSchema, 
   insertRentalSchema,
   insertReviewSchema,
-  insertNotificationSchema
+  insertNotificationSchema,
+  insertVideoSchema,
+  InsertVideo
 } from "@shared/schema";
 import * as chatbot from "./chatbot";
 import { registerMPesaRoutes } from "./routes-mpesa";
@@ -1383,6 +1385,148 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Initialize M-Pesa routes
   await registerMPesaRoutes(app);
+  
+  // Video routes for the Explore page
+  app.get('/api/videos', async (req, res) => {
+    try {
+      const { category, status = 'approved' } = req.query;
+      const videos = await storage.listVideos(
+        category as string | undefined, 
+        status as string | undefined
+      );
+      res.json(videos);
+    } catch (error) {
+      console.error('Error fetching videos:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  app.get('/api/videos/:id', async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+      const video = await storage.getVideo(videoId);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      res.json(video);
+    } catch (error) {
+      console.error('Error fetching video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  app.post('/api/videos', isAuthenticated, async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: 'Not authenticated' });
+      }
+      
+      const videoData = req.body as InsertVideo;
+      
+      // Extract YouTube video ID from URL
+      const youtubeUrlPattern = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+      const match = videoData.url.match(youtubeUrlPattern);
+      
+      if (!match) {
+        return res.status(400).json({ message: 'Invalid YouTube URL' });
+      }
+      
+      const videoId = match[1];
+      
+      // Generate thumbnail URL from video ID
+      videoData.thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+      videoData.userId = req.user.id;
+      
+      const newVideo = await storage.createVideo(videoData);
+      
+      // Create notification for admin about new video submission
+      await storage.createNotification({
+        userId: 1, // Admin user ID
+        title: 'New Video Submission',
+        message: `A new video "${videoData.title}" has been submitted for review.`,
+        type: 'video_submission',
+        relatedId: newVideo.id,
+      });
+      
+      res.status(201).json(newVideo);
+    } catch (error) {
+      console.error('Error creating video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  app.get('/api/my/videos', isAuthenticated, async (req, res) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ message: 'Not authenticated' });
+      }
+      
+      const videos = await storage.getVideosByUserId(req.user.id);
+      res.json(videos);
+    } catch (error) {
+      console.error('Error fetching user videos:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  // Admin routes for video management
+  app.post('/api/admin/videos/:id/approve', isAuthenticated, hasRole(["admin"]), async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+      const video = await storage.approveVideo(videoId);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      // Create notification for the user
+      await storage.createNotification({
+        userId: video.userId,
+        title: 'Video Approved',
+        message: `Your video "${video.title}" has been approved and is now visible in the Explore page.`,
+        type: 'video_approved',
+        relatedId: video.id,
+      });
+      
+      res.json(video);
+    } catch (error) {
+      console.error('Error approving video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  app.post('/api/admin/videos/:id/reject', isAuthenticated, hasRole(["admin"]), async (req, res) => {
+    try {
+      const videoId = parseInt(req.params.id);
+      const { reason } = req.body;
+      
+      if (!reason) {
+        return res.status(400).json({ message: 'Rejection reason is required' });
+      }
+      
+      const video = await storage.rejectVideo(videoId, reason);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      // Create notification for the user
+      await storage.createNotification({
+        userId: video.userId,
+        title: 'Video Rejected',
+        message: `Your video "${video.title}" has been rejected. Reason: ${reason}`,
+        type: 'video_rejected',
+        relatedId: video.id,
+      });
+      
+      res.json(video);
+    } catch (error) {
+      console.error('Error rejecting video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
   
   const httpServer = createServer(app);
   return httpServer;

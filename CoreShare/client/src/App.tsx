@@ -17,6 +17,8 @@ import MyGpusPage from "@/pages/my-gpus-page";
 import PaymentsPage from "@/pages/payments-page";
 import AnalyticsPage from "@/pages/analytics-page";
 import IncomePage from "@/pages/income-page";
+import ExplorePage from "@/pages/explore-page";
+import VideoManagementPage from "@/pages/admin/video-management";
 
 function Router() {
   return (
@@ -29,6 +31,8 @@ function Router() {
       <ProtectedRoute path="/payments" component={PaymentsPage} />
       <ProtectedRoute path="/analytics" component={AnalyticsPage} />
       <ProtectedRoute path="/income" component={IncomePage} />
+      <ProtectedRoute path="/explore" component={ExplorePage} />
+      <ProtectedRoute path="/admin/video-management" component={VideoManagementPage} />
       
       {/* Fallback to 404 */}
       <Route component={NotFound} />

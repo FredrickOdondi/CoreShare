@@ -103,6 +103,22 @@ export const payments = pgTable("payments", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// User-submitted Videos table for Explore page
+export const videos = pgTable("videos", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  url: text("url").notNull(),
+  thumbnail: text("thumbnail").notNull(),
+  channelTitle: text("channel_title").notNull(),
+  userId: integer("user_id").notNull(), // User who submitted the video
+  categoryId: text("category_id").notNull(), // 'gaming', 'ai', 'rendering', 'mining'
+  viewCount: text("view_count").default("0"),
+  likeCount: text("like_count").default("0"),
+  status: text("status").notNull().default("pending"), // 'pending', 'approved', 'rejected'
+  rejectionReason: text("rejection_reason"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Schema validation
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -163,6 +179,15 @@ export const insertPaymentSchema = createInsertSchema(payments).pick({
   metadata: true,
 });
 
+export const insertVideoSchema = createInsertSchema(videos).pick({
+  title: true,
+  url: true,
+  thumbnail: true,
+  channelTitle: true,
+  userId: true,
+  categoryId: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -183,6 +208,9 @@ export type InsertNotification = z.infer<typeof insertNotificationSchema>;
 
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = z.infer<typeof insertPaymentSchema>;
+
+export type Video = typeof videos.$inferSelect;
+export type InsertVideo = z.infer<typeof insertVideoSchema>;
 
 // Extended Types for Frontend
 export const loginSchema = insertUserSchema.pick({

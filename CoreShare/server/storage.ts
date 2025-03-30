@@ -1,6 +1,6 @@
 import { 
-  InsertGpu, InsertRental, InsertUser, InsertReview, InsertNotification, InsertPayment,
-  Gpu, Rental, User, Review, Notification, Payment
+  InsertGpu, InsertRental, InsertUser, InsertReview, InsertNotification, InsertPayment, InsertVideo,
+  Gpu, Rental, User, Review, Notification, Payment, Video
 } from "@shared/schema";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
@@ -66,6 +66,15 @@ export interface IStorage {
   getPaymentsByUserId(userId: number): Promise<Payment[]>;
   updatePayment(id: number, data: Partial<Payment>): Promise<Payment | undefined>;
   updateUserStripeCustomerId(userId: number, stripeCustomerId: string): Promise<User | undefined>;
+  
+  // Video methods
+  getVideo(id: number): Promise<Video | undefined>;
+  listVideos(categoryId?: string, status?: string): Promise<Video[]>;
+  createVideo(video: InsertVideo): Promise<Video>;
+  updateVideo(id: number, data: Partial<Video>): Promise<Video | undefined>;
+  getVideosByUserId(userId: number): Promise<Video[]>;
+  approveVideo(id: number): Promise<Video | undefined>;
+  rejectVideo(id: number, reason: string): Promise<Video | undefined>;
   
   // For auth session storage
   sessionStore: session.SessionStore;
@@ -180,6 +189,24 @@ export class PostgresStorage implements IStorage {
           status VARCHAR(50) NOT NULL DEFAULT 'pending',
           payment_method VARCHAR(50),
           metadata TEXT,
+          created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+      `);
+      
+      // Create videos table for the Explore page
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS videos (
+          id SERIAL PRIMARY KEY,
+          title VARCHAR(255) NOT NULL,
+          url VARCHAR(255) NOT NULL,
+          thumbnail VARCHAR(255) NOT NULL,
+          channel_title VARCHAR(255) NOT NULL,
+          user_id INTEGER NOT NULL REFERENCES users(id),
+          category_id VARCHAR(50) NOT NULL,
+          view_count VARCHAR(50) DEFAULT '0',
+          like_count VARCHAR(50) DEFAULT '0',
+          status VARCHAR(50) NOT NULL DEFAULT 'pending',
+          rejection_reason TEXT,
           created_at TIMESTAMP NOT NULL DEFAULT NOW()
         )
       `);
@@ -867,6 +894,146 @@ export class PostgresStorage implements IStorage {
     if (result.rows.length === 0) return undefined;
     
     return this.mapDatabaseUserToUserModel(result.rows[0]);
+  }
+  
+  // Video methods
+  
+  private mapDatabaseVideoToVideoModel(dbVideo: any): Video {
+    return {
+      id: dbVideo.id,
+      title: dbVideo.title,
+      url: dbVideo.url,
+      thumbnail: dbVideo.thumbnail,
+      channelTitle: dbVideo.channel_title,
+      userId: dbVideo.user_id,
+      categoryId: dbVideo.category_id,
+      viewCount: dbVideo.view_count,
+      likeCount: dbVideo.like_count,
+      status: dbVideo.status,
+      rejectionReason: dbVideo.rejection_reason,
+      createdAt: dbVideo.created_at,
+    };
+  }
+  
+  async getVideo(id: number): Promise<Video | undefined> {
+    const result = await pool.query('SELECT * FROM videos WHERE id = $1', [id]);
+    if (result.rows.length === 0) return undefined;
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
+  }
+  
+  async listVideos(categoryId?: string, status?: string): Promise<Video[]> {
+    let query = 'SELECT * FROM videos';
+    const params: any[] = [];
+    let conditions: string[] = [];
+    
+    if (categoryId) {
+      conditions.push(`category_id = $${params.length + 1}`);
+      params.push(categoryId);
+    }
+    
+    if (status) {
+      conditions.push(`status = $${params.length + 1}`);
+      params.push(status);
+    }
+    
+    if (conditions.length > 0) {
+      query += ` WHERE ${conditions.join(' AND ')}`;
+    }
+    
+    query += ' ORDER BY created_at DESC';
+    
+    const result = await pool.query(query, params);
+    return result.rows.map(video => this.mapDatabaseVideoToVideoModel(video));
+  }
+  
+  async createVideo(video: InsertVideo): Promise<Video> {
+    const result = await pool.query(`
+      INSERT INTO videos (
+        title, url, thumbnail, channel_title, user_id, category_id
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `, [
+      video.title,
+      video.url,
+      video.thumbnail,
+      video.channelTitle,
+      video.userId,
+      video.categoryId,
+    ]);
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
+  }
+  
+  async updateVideo(id: number, data: Partial<Video>): Promise<Video | undefined> {
+    const setClause: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+    
+    // Build the SET clause dynamically based on the data provided
+    Object.entries(data).forEach(([key, value]) => {
+      if (key !== 'id' && key !== 'createdAt') {
+        let columnName = key;
+        // Convert camelCase to snake_case for DB column names
+        if (key === 'userId') columnName = 'user_id';
+        if (key === 'categoryId') columnName = 'category_id';
+        if (key === 'channelTitle') columnName = 'channel_title';
+        if (key === 'viewCount') columnName = 'view_count';
+        if (key === 'likeCount') columnName = 'like_count';
+        if (key === 'rejectionReason') columnName = 'rejection_reason';
+        
+        setClause.push(`${columnName} = $${paramIndex}`);
+        params.push(value);
+        paramIndex++;
+      }
+    });
+    
+    if (setClause.length === 0) return this.getVideo(id);
+    
+    params.push(id);
+    const query = `
+      UPDATE videos
+      SET ${setClause.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+    
+    const result = await pool.query(query, params);
+    if (result.rows.length === 0) return undefined;
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
+  }
+  
+  async getVideosByUserId(userId: number): Promise<Video[]> {
+    const result = await pool.query('SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    return result.rows.map(video => this.mapDatabaseVideoToVideoModel(video));
+  }
+  
+  async approveVideo(id: number): Promise<Video | undefined> {
+    const result = await pool.query(`
+      UPDATE videos
+      SET status = 'approved'
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+    
+    if (result.rows.length === 0) return undefined;
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
+  }
+  
+  async rejectVideo(id: number, reason: string): Promise<Video | undefined> {
+    const result = await pool.query(`
+      UPDATE videos
+      SET status = 'rejected', rejection_reason = $2
+      WHERE id = $1
+      RETURNING *
+    `, [id, reason]);
+    
+    if (result.rows.length === 0) return undefined;
+    
+    return this.mapDatabaseVideoToVideoModel(result.rows[0]);
   }
   
   // Payment methods
