@@ -27,6 +27,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ActiveInstanceCard } from "@/components/dashboard/active-instance-card";
+import { MPesaPaymentDialog } from "@/components/payments";
 
 export default function MyRentalsPage() {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ export default function MyRentalsPage() {
   const [selectedTab, setSelectedTab] = useState("running");
   const [selectedRental, setSelectedRental] = useState<Rental | null>(null);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
+  const [paymentDialogRentalId, setPaymentDialogRentalId] = useState<number | null>(null);
   
   // Fetch GPUs for reference
   const { data: gpus } = useQuery<Gpu[]>({
@@ -165,6 +167,9 @@ export default function MyRentalsPage() {
       accessorKey: "status",
       cell: (row: Rental) => {
         const statusMap = {
+          pending_approval: <Badge className="bg-yellow-700 hover:bg-yellow-700">Pending Approval</Badge>,
+          approved: <Badge className="bg-purple-700 hover:bg-purple-700">Approved</Badge>,
+          rejected: <Badge className="bg-red-900 hover:bg-red-900">Rejected</Badge>,
           running: <Badge className="bg-green-700 hover:bg-green-700">Running</Badge>,
           completed: <Badge className="bg-blue-700 hover:bg-blue-700">Completed</Badge>,
           cancelled: <Badge className="bg-red-700 hover:bg-red-700">Cancelled</Badge>
@@ -189,6 +194,16 @@ export default function MyRentalsPage() {
           >
             Details
           </Button>
+          {row.status === "approved" && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="bg-green-900/20 text-green-400 hover:bg-green-900/30 hover:text-green-300"
+              onClick={() => setPaymentDialogRentalId(row.id)}
+            >
+              Pay Now
+            </Button>
+          )}
           {row.status === "running" && (
             <Button 
               variant="destructive" 
@@ -230,6 +245,8 @@ export default function MyRentalsPage() {
           >
             <TabsList>
               <TabsTrigger value="running">Running</TabsTrigger>
+              <TabsTrigger value="approved">Approved</TabsTrigger>
+              <TabsTrigger value="pending_approval">Pending</TabsTrigger>
               <TabsTrigger value="completed">Completed</TabsTrigger>
               <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
               <TabsTrigger value="all">All</TabsTrigger>
@@ -289,7 +306,8 @@ export default function MyRentalsPage() {
                     pricePerHour={gpu.pricePerHour}
                     onViewDetails={() => handleViewDetails(rental.id)}
                     onStop={() => stopRentalMutation.mutate(rental.id)}
-                    className={rental.status !== "running" ? "opacity-75" : ""}
+                    onPay={() => setPaymentDialogRentalId(rental.id)}
+                    className={rental.status !== "running" && rental.status !== "approved" ? "opacity-75" : ""}
                   />
                 ) : null;
               })
@@ -371,7 +389,7 @@ export default function MyRentalsPage() {
                       : selectedRental.endTime 
                         ? formatDistanceToNow(
                             new Date(selectedRental.startTime), 
-                            { addSuffix: false, end: new Date(selectedRental.endTime) }
+                            { addSuffix: false }
                           )
                         : "N/A"
                     }
@@ -395,8 +413,21 @@ export default function MyRentalsPage() {
                 </div>
               </div>
               
-              {selectedRental.status === "running" && (
-                <DialogFooter>
+              <DialogFooter>
+                {selectedRental.status === "approved" && (
+                  <Button 
+                    variant="outline"
+                    className="bg-green-900/20 text-green-400 hover:bg-green-900/30 hover:text-green-300"
+                    onClick={() => {
+                      setDetailsDialogOpen(false);
+                      setPaymentDialogRentalId(selectedRental.id);
+                    }}
+                  >
+                    Pay Now
+                  </Button>
+                )}
+                
+                {selectedRental.status === "running" && (
                   <Button 
                     variant="destructive"
                     onClick={() => stopRentalMutation.mutate(selectedRental.id)}
@@ -404,12 +435,29 @@ export default function MyRentalsPage() {
                   >
                     {stopRentalMutation.isPending ? "Processing..." : "Stop Rental"}
                   </Button>
-                </DialogFooter>
-              )}
+                )}
+              </DialogFooter>
             </div>
           )}
         </DialogContent>
       </Dialog>
+      
+      {/* M-Pesa Payment Dialog */}
+      <MPesaPaymentDialog
+        rentalId={paymentDialogRentalId || 0}
+        open={paymentDialogRentalId !== null}
+        onOpenChange={(open) => {
+          if (!open) setPaymentDialogRentalId(null);
+        }}
+        onSuccess={() => {
+          toast({
+            title: "Payment Successful",
+            description: "Your GPU rental is now active. You can access your GPU credentials.",
+          });
+          queryClient.invalidateQueries({ queryKey: ["/api/my/rentals"] });
+          setPaymentDialogRentalId(null);
+        }}
+      />
     </div>
   );
 }

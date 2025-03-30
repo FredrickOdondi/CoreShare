@@ -8,6 +8,7 @@ import { ScrollArea } from "../ui/scroll-area";
 import { apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { useTheme } from "@/hooks/use-theme";
 
 type Message = {
   id: string;
@@ -46,6 +47,7 @@ export default function ChatWithCori() {
   
   const { user } = useAuth();
   const { toast } = useToast();
+  const { toggleTheme } = useTheme();
   const queryClient = useQueryClient();
 
   // Create a new chat session
@@ -77,6 +79,10 @@ export default function ChatWithCori() {
     try {
       const response = await apiRequest("POST", "/api/chat/message", { sessionId, message });
       const data = await response.json();
+      
+      // Store the response object for context
+      (data as any).response = response;
+      
       return data as Message;
     } catch (error) {
       console.error("Error sending message:", error);
@@ -208,8 +214,22 @@ export default function ChatWithCori() {
   // Message mutation
   const messageMutation = useMutation({
     mutationFn: sendMessage,
-    onSuccess: (botResponse) => {
+    onSuccess: (botResponse, variables, context) => {
       setMessages((prev) => [...prev, botResponse]);
+      
+      // Check if there's a theme toggle action in the headers
+      const response = (botResponse as any).response as Response;
+      if (response?.headers?.get('X-Theme-Action') === 'toggle') {
+        // Toggle theme when requested
+        console.log("Theme toggle requested by Cori");
+        toggleTheme();
+        
+        // Show toast notification
+        toast({
+          title: "Theme Changed",
+          description: "Theme has been toggled by Cori",
+        });
+      }
       
       // Check for potential GPU listing creation instructions in the bot response
       const content = botResponse.content.toLowerCase();

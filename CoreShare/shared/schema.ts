@@ -50,11 +50,22 @@ export const rentals = pgTable("rentals", {
   task: text("task"),
   startTime: timestamp("start_time").notNull().defaultNow(),
   endTime: timestamp("end_time"),
-  status: text("status").notNull().default("running"), // 'running', 'completed', 'cancelled'
+  // Updated status options:
+  // 'pending_approval' - initial state, waiting for owner to approve
+  // 'approved' - owner approved but waiting for payment
+  // 'running' - payment completed and rental active
+  // 'completed' - rental ended normally
+  // 'cancelled' - rental cancelled by renter or owner
+  // 'rejected' - owner rejected the rental request
+  status: text("status").notNull().default("pending_approval"),
   totalCost: doublePrecision("total_cost"),
   paymentIntentId: text("payment_intent_id"),
   paymentStatus: text("payment_status").default("unpaid"), // 'unpaid', 'paid', 'refunded'
   createdAt: timestamp("created_at").defaultNow(),
+  approvedAt: timestamp("approved_at"),
+  approvedById: integer("approved_by_id"), // ID of the owner who approved
+  loginCredentials: text("login_credentials"), // Encrypted credentials for GPU access
+  rejectionReason: text("rejection_reason"), // Reason if owner rejects the rental
 });
 
 // Reviews table

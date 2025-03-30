@@ -12,6 +12,7 @@ interface ActiveInstanceCardProps {
   pricePerHour: number;
   onViewDetails: (rentalId: number) => void;
   onStop: (rentalId: number) => void;
+  onPay?: (rentalId: number) => void;
   className?: string;
 }
 
@@ -22,6 +23,7 @@ export function ActiveInstanceCard({
   pricePerHour,
   onViewDetails,
   onStop,
+  onPay,
   className
 }: ActiveInstanceCardProps) {
   const startTime = new Date(rental.startTime);
@@ -40,9 +42,36 @@ export function ActiveInstanceCard({
               <div className="text-xs text-muted-foreground">{vram}</div>
             </div>
           </div>
-          <span className="px-2 text-xs font-semibold rounded-full bg-green-900 bg-opacity-50 text-green-300">
-            Running
-          </span>
+          {rental.status === "running" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-green-900 bg-opacity-50 text-green-300">
+              Running
+            </span>
+          )}
+          {rental.status === "approved" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-purple-900 bg-opacity-50 text-purple-300">
+              Approved
+            </span>
+          )}
+          {rental.status === "pending_approval" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-yellow-900 bg-opacity-50 text-yellow-300">
+              Pending
+            </span>
+          )}
+          {rental.status === "completed" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-blue-900 bg-opacity-50 text-blue-300">
+              Completed
+            </span>
+          )}
+          {rental.status === "cancelled" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-red-900 bg-opacity-50 text-red-300">
+              Cancelled
+            </span>
+          )}
+          {rental.status === "rejected" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-red-900 bg-opacity-50 text-red-300">
+              Rejected
+            </span>
+          )}
         </div>
         
         <div className="mt-3 grid grid-cols-3 gap-2 text-sm">
@@ -69,13 +98,27 @@ export function ActiveInstanceCard({
           >
             Details
           </Button>
-          <Button 
-            variant="destructive" 
-            size="sm"
-            onClick={() => onStop(rental.id)}
-          >
-            Stop
-          </Button>
+          
+          {rental.status === "approved" && onPay && (
+            <Button 
+              variant="outline" 
+              size="sm"
+              className="bg-green-900/20 text-green-400 hover:bg-green-900/30 hover:text-green-300"
+              onClick={() => onPay(rental.id)}
+            >
+              Pay Now
+            </Button>
+          )}
+          
+          {rental.status === "running" && (
+            <Button 
+              variant="destructive" 
+              size="sm"
+              onClick={() => onStop(rental.id)}
+            >
+              Stop
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>

@@ -74,14 +74,30 @@ Users can create new GPU listings by describing their GPU specifications to Cori
 - Request missing required information
 - Submit the listing to the database
 
-### 3. Personalized Assistance
+### 3. Stop Running Rentals
+
+Users can ask Cori to stop their active GPU rentals by using natural language commands:
+- "Stop my GPU rental"
+- "Cancel my rental"
+- "End my current rental"
+- For users with multiple active rentals, Cori will ask them to specify which one to stop
+
+### 4. Theme Toggling
+
+Users can ask Cori to change the application theme:
+- "Switch to dark mode"
+- "Change to light mode"
+- "Toggle the theme"
+- Cori will automatically switch between light and dark themes based on these requests
+
+### 5. Personalized Assistance
 
 When users are logged in, Cori can provide personalized information about:
 - Their current GPU rentals
 - GPUs they own
 - Rental history and recommendations
 
-### 4. Context-Aware Conversations
+### 6. Context-Aware Conversations
 
 The system maintains chat sessions with message history, allowing for contextual conversations where the bot remembers previous exchanges.
 
@@ -206,17 +222,53 @@ To connect the chatbot with new CoreShare features:
 
 ## Performance Optimization
 
-1. **Caching Common Responses**
-   - Consider caching responses to frequent questions
-   - Implement a TTL (Time To Live) for cached responses
+The chatbot implementation includes several performance optimizations:
 
-2. **Database Query Optimization**
-   - Review and optimize database queries in `getContextData`
-   - Add indexes for frequently accessed fields
+1. **Response Caching**
+   - In-memory LRU cache for common questions and responses
+   - Configurable TTL (Time To Live) for cached entries (default: 1 hour)
+   - Automatic cache cleanup during session management
+   - Cache size limitation to prevent memory issues (default: 100 entries)
 
-3. **Session Management**
-   - Implement a more efficient session storage mechanism for production
-   - Consider using Redis or a similar in-memory database
+2. **Batch Database Processing**
+   - Parallel execution of database queries using Promise.all
+   - Timeout mechanism for context data retrieval to prevent blocking
+   - Performance monitoring with timing logs
+   - Optimized database query patterns
+
+3. **Request Debouncing**
+   - Prevention of rapid-fire/duplicate requests from same session
+   - Configurable debounce interval (default: 1 second)
+   - Request tracking and queue management
+   - Performance metrics logging for response times
+
+4. **Session Management**
+   - Memory-efficient session storage with automatic cleanup
+   - Session timeout configuration (default: 24 hours)
+   - Periodic cleanup of inactive sessions
+   - Type-safe implementation with proper error handling
+
+### Performance Monitoring
+
+The system logs performance metrics for:
+- API request processing time
+- Database query execution time
+- Cache hit/miss rates
+- Session cleanup operations
+
+### Further Optimization Opportunities
+
+1. **Database Indexing**
+   - Add indexes for frequently accessed fields in the database
+   - Review query patterns periodically for optimization
+
+2. **External Caching Layer**
+   - Consider moving from in-memory to Redis or similar for production
+   - Implement distributed caching for multi-server deployments
+
+3. **Message Compression**
+   - Implement compression for long conversation histories
+   - Truncate older messages to save memory
 
 ## Future Enhancements Roadmap
 

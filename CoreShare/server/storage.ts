@@ -507,6 +507,11 @@ export class PostgresStorage implements IStorage {
       paymentIntentId: dbRental.payment_intent_id,
       paymentStatus: dbRental.payment_status,
       createdAt: dbRental.created_at,
+      // New fields for rental approval process
+      approvedAt: dbRental.approved_at,
+      approvedById: dbRental.approved_by_id,
+      loginCredentials: dbRental.login_credentials,
+      rejectionReason: dbRental.rejection_reason,
     };
   }
   
@@ -525,7 +530,7 @@ export class PostgresStorage implements IStorage {
     };
   }
   
-  async createRental(insertRental: InsertRental): Promise<Rental> {
+  async createRental(insertRental: InsertRental & { status?: string }): Promise<Rental> {
     const result = await pool.query(`
       INSERT INTO rentals (gpu_id, renter_id, status, task, start_time)
       VALUES ($1, $2, $3, $4, $5)
@@ -533,7 +538,7 @@ export class PostgresStorage implements IStorage {
     `, [
       insertRental.gpuId,
       insertRental.renterId,
-      'running', // Changed from 'active' to match our schema's default value
+      insertRental.status || 'pending_approval', // Use the new default status
       insertRental.task,
       new Date()
     ]);
@@ -559,6 +564,11 @@ export class PostgresStorage implements IStorage {
         if (key === 'totalCost') columnName = 'total_cost';
         if (key === 'paymentIntentId') columnName = 'payment_intent_id';
         if (key === 'paymentStatus') columnName = 'payment_status';
+        // New rental approval process fields
+        if (key === 'approvedAt') columnName = 'approved_at';
+        if (key === 'approvedById') columnName = 'approved_by_id';
+        if (key === 'loginCredentials') columnName = 'login_credentials';
+        if (key === 'rejectionReason') columnName = 'rejection_reason';
         
         setClause.push(`${columnName} = $${paramIndex}`);
         params.push(value);

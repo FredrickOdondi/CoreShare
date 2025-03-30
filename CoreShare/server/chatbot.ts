@@ -9,7 +9,7 @@ import { randomUUID } from 'crypto';
 import OpenAI from 'openai';
 import { db } from './db';
 import { gpus, rentals, reviews, payments, users } from '@shared/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 import { storage } from './storage';
 
 interface Message {
@@ -28,6 +28,17 @@ interface ChatSession {
 
 // Store chat sessions in memory (would use a database in production)
 const chatSessions: Record<string, ChatSession> = {};
+
+// Response cache for frequently asked questions (in-memory LRU cache)
+interface CacheEntry {
+  response: string;
+  timestamp: Date;
+  expiresAt: Date;
+}
+
+const responseCache: Map<string, CacheEntry> = new Map();
+const CACHE_SIZE_LIMIT = 100; // Maximum number of cached responses
+const CACHE_TTL = 60 * 60 * 1000; // Cache TTL: 1 hour in milliseconds
 
 // Initialize OpenAI client with OpenRouter API key
 const openai = new OpenAI({
@@ -65,6 +76,17 @@ If a user asks to create a new GPU listing or add a GPU to the platform:
 4. When you have the essential information, tell them you're creating the listing
 5. Create the listing by using the createGpuListing function
 6. Confirm when the listing is created successfully or explain any errors
+
+If a user asks to stop a GPU rental or asks you to stop a running GPU:
+1. Check if they have any active rentals
+2. If they do, confirm which rental they want to stop
+3. Use the stopRental function to stop the rental
+4. Confirm when the rental is stopped successfully or explain any errors
+
+If a user asks to change the theme to light mode or dark mode:
+1. Confirm that they want to change the theme
+2. Use the toggleTheme function to switch between light and dark mode
+3. Confirm the theme change
 
 If you don't know an answer, admit it rather than making up information.
 `;
@@ -150,6 +172,34 @@ export async function processMessage(sessionId: string, message: string): Promis
   session.lastActivity = new Date();
 
   try {
+    // Check if we have a cached response for this message
+    // Only use cache for simple informational queries, not for commands/actions
+    const shouldCheckCache = !message.toLowerCase().includes('create') && 
+                           !message.toLowerCase().includes('stop') &&
+                           !message.toLowerCase().includes('theme');
+    
+    if (shouldCheckCache) {
+      const cachedResponse = getCachedResponse(message);
+      if (cachedResponse) {
+        console.log(`Using cached response for: "${message.substring(0, 30)}..."`);
+        
+        // Create bot message from cache
+        const botMessage: Message = {
+          id: randomUUID(),
+          role: 'assistant',
+          content: cachedResponse,
+          timestamp: new Date()
+        };
+        
+        // Add to session
+        session.messages.push(botMessage);
+        return botMessage;
+      }
+    }
+    
+    // Start timing the request
+    const requestStartTime = Date.now();
+    
     // Prepare conversation history for API call
     const conversationHistory = session.messages.map(msg => ({
       role: msg.role,
@@ -157,7 +207,26 @@ export async function processMessage(sessionId: string, message: string): Promis
     }));
 
     // Get real-time GPU data for context
-    const contextData = await getContextData(session.userId);
+    // We'll implement batch processing for database calls here
+    let contextPromise = getContextData(session.userId);
+    
+    // While waiting for context data, start preparing the API call
+    let contextData: string | null = null;
+    
+    // Wait for context data with a timeout
+    try {
+      const CONTEXT_TIMEOUT = 500; // 500ms timeout
+      const timeoutPromise = new Promise<null>((resolve) => {
+        setTimeout(() => resolve(null), CONTEXT_TIMEOUT);
+      });
+      
+      // Race between context retrieval and timeout
+      contextData = await Promise.race([contextPromise, timeoutPromise]);
+    } catch (error) {
+      console.warn('Error or timeout fetching context data:', error);
+      contextData = null;
+    }
+    
     if (contextData) {
       // Add context as a system message
       const contextMessage: Message = {
@@ -183,8 +252,18 @@ export async function processMessage(sessionId: string, message: string): Promis
       max_tokens: 1000
     });
 
+    // Calculate request time
+    const requestEndTime = Date.now();
+    const requestTime = requestEndTime - requestStartTime;
+    console.log(`AI request completed in ${requestTime}ms`);
+
     // Get bot response
     const botResponse = response.choices[0].message.content || randomResponse(knowledgeBase.fallback);
+    
+    // Cache the response if it's a general informational query
+    if (shouldCheckCache) {
+      cacheResponse(message, botResponse);
+    }
     
     // Create bot message
     const botMessage: Message = {
@@ -215,11 +294,18 @@ export async function processMessage(sessionId: string, message: string): Promis
 
 /**
  * Get contextual data from the database to enhance chatbot responses
+ * Optimized with batch processing for database queries
  */
 async function getContextData(userId?: number): Promise<string | null> {
   try {
-    // Get available GPUs
-    const availableGpus = await db.select({
+    // Start performance tracking
+    const startTime = performance.now();
+    
+    // Create an array of promises for parallel execution
+    const queries: Promise<any>[] = [];
+    
+    // Query 1: Get available GPUs
+    const availableGpusPromise = db.select({
       id: gpus.id,
       name: gpus.name,
       manufacturer: gpus.manufacturer,
@@ -230,51 +316,70 @@ async function getContextData(userId?: number): Promise<string | null> {
       .where(eq(gpus.available, true))
       .limit(10);
     
-    // Get user-specific data if authenticated
-    let userData = null;
+    queries.push(availableGpusPromise);
+    
+    // Add user-specific queries if user is authenticated
+    let userRentalsPromise: Promise<any> | null = null;
+    let userGpusPromise: Promise<any> | null = null;
+    
     if (userId) {
-      // Get user's active rentals if any
-      const userRentals = await db.select().from(rentals)
+      // Query 2: Get user's active rentals
+      userRentalsPromise = db.select().from(rentals)
         .where(eq(rentals.renterId, userId))
         .limit(5);
       
-      // Get user's own GPUs if any
-      const userGpus = await db.select().from(gpus)
+      // Query 3: Get user's own GPUs
+      userGpusPromise = db.select().from(gpus)
         .where(eq(gpus.ownerId, userId))
         .limit(5);
       
-      userData = {
-        rentals: userRentals,
-        gpus: userGpus
-      };
+      queries.push(userRentalsPromise);
+      queries.push(userGpusPromise);
+    }
+    
+    // Execute all queries in parallel
+    const results = await Promise.all(queries);
+    
+    // Parse results
+    const availableGpus = results[0];
+    let userRentals: any[] = [];
+    let userGpus: any[] = [];
+    
+    if (userId) {
+      userRentals = results[1];
+      userGpus = results[2];
     }
     
     // Format the data as a string
     let contextString = "Available GPUs:\n";
     
     if (availableGpus.length > 0) {
-      availableGpus.forEach(gpu => {
+      availableGpus.forEach((gpu: any) => {
         contextString += `- ${gpu.name} (${gpu.manufacturer}): ${gpu.vram}GB VRAM, $${gpu.pricePerHour}/hour\n`;
       });
     } else {
       contextString += "No GPUs are currently available for rent.\n";
     }
     
-    if (userData) {
-      if (userData.rentals.length > 0) {
+    if (userId) {
+      if (userRentals.length > 0) {
         contextString += "\nUser's Active Rentals:\n";
-        userData.rentals.forEach(rental => {
+        userRentals.forEach((rental: any) => {
           contextString += `- Rental #${rental.id}: GPU ID ${rental.gpuId}, Status: ${rental.status}\n`;
         });
       }
       
-      if (userData.gpus.length > 0) {
+      if (userGpus.length > 0) {
         contextString += "\nUser's Listed GPUs:\n";
-        userData.gpus.forEach(gpu => {
+        userGpus.forEach((gpu: any) => {
           contextString += `- ${gpu.name}: $${gpu.pricePerHour}/hour, Available: ${gpu.available ? 'Yes' : 'No'}\n`;
         });
       }
     }
+    
+    // Log performance
+    const endTime = performance.now();
+    console.log(`Context data fetched in ${Math.round(endTime - startTime)}ms with batch processing`);
     
     return contextString;
   } catch (error) {
@@ -319,6 +424,72 @@ function randomResponse(responses: string[]): string {
 }
 
 /**
+ * Add a response to the cache
+ */
+function cacheResponse(query: string, response: string): void {
+  // Normalize the query (lowercase, trim whitespace)
+  const normalizedQuery = query.toLowerCase().trim();
+  
+  // Create cache entry
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + CACHE_TTL);
+  
+  // Add to cache
+  responseCache.set(normalizedQuery, {
+    response,
+    timestamp: now,
+    expiresAt
+  });
+  
+  // Check if cache size limit is exceeded
+  if (responseCache.size > CACHE_SIZE_LIMIT) {
+    // Remove the oldest entry
+    // Using Array.from() to handle iterator in a more compatible way
+    const keys = Array.from(responseCache.keys());
+    if (keys.length > 0) {
+      responseCache.delete(keys[0]);
+    }
+  }
+}
+
+/**
+ * Get a cached response if available
+ */
+function getCachedResponse(query: string): string | null {
+  // Normalize the query
+  const normalizedQuery = query.toLowerCase().trim();
+  
+  // Check if query is in cache
+  const cacheEntry = responseCache.get(normalizedQuery);
+  if (!cacheEntry) return null;
+  
+  // Check if cache entry is expired
+  const now = new Date();
+  if (now > cacheEntry.expiresAt) {
+    // Remove expired entry
+    responseCache.delete(normalizedQuery);
+    return null;
+  }
+  
+  // Return cached response
+  return cacheEntry.response;
+}
+
+/**
+ * Clean up old cache entries
+ */
+function cleanupExpiredCache(): void {
+  const now = new Date();
+  
+  // Remove expired entries using Array.from to avoid iterator issues
+  Array.from(responseCache.entries()).forEach(([key, entry]) => {
+    if (now > entry.expiresAt) {
+      responseCache.delete(key);
+    }
+  });
+}
+
+/**
  * Clean up old chat sessions (called periodically)
  */
 export function cleanupOldSessions(): void {
@@ -333,10 +504,140 @@ export function cleanupOldSessions(): void {
       delete chatSessions[sessionId];
     }
   });
+  
+  // Also clean up expired cache entries
+  cleanupExpiredCache();
 }
 
 // Run cleanup every hour
 setInterval(cleanupOldSessions, 60 * 60 * 1000);
+
+/**
+ * Stop a running GPU rental
+ * This is used by the chatbot to stop a user's active rental when prompted
+ */
+export async function stopRental(
+  userId: number,
+  rentalId?: number
+): Promise<{ success: boolean; message: string; rentalId?: number }> {
+  try {
+    // Validate inputs
+    if (!userId) {
+      return { success: false, message: "You need to be logged in to stop a rental." };
+    }
+    
+    // If no rentalId provided, check if user has any active rentals
+    if (!rentalId) {
+      // Get active rentals for the user
+      const activeRentals = await db.select().from(rentals)
+        .where(and(
+          eq(rentals.renterId, userId),
+          eq(rentals.status, "running")
+        ));
+      
+      if (activeRentals.length === 0) {
+        return { success: false, message: "You don't have any active GPU rentals to stop." };
+      }
+      
+      if (activeRentals.length === 1) {
+        // If user has exactly one active rental, use that one
+        rentalId = activeRentals[0].id;
+      } else {
+        // If user has multiple active rentals, we need them to specify which one
+        let rentalsList = "You have multiple active rentals. Please specify which one you'd like to stop:\n";
+        activeRentals.forEach(rental => {
+          rentalsList += `- Rental #${rental.id}: GPU ID ${rental.gpuId}\n`;
+        });
+        return { success: false, message: rentalsList };
+      }
+    }
+    
+    // Get the rental
+    const rental = await storage.getRental(rentalId);
+    if (!rental) {
+      return { success: false, message: "Rental not found." };
+    }
+    
+    // Check if user owns the rental or the GPU
+    if (rental.renterId !== userId) {
+      // Check if user is the GPU owner
+      const gpu = await storage.getGpu(rental.gpuId);
+      if (!gpu || gpu.ownerId !== userId) {
+        return { success: false, message: "You don't have permission to stop this rental." };
+      }
+    }
+    
+    // Check if rental is active
+    if (rental.status !== "running") {
+      return { success: false, message: "This rental is not currently active." };
+    }
+    
+    // Stop the rental
+    const endTime = new Date();
+    const durationMs = endTime.getTime() - rental.startTime.getTime();
+    const durationHours = durationMs / (1000 * 60 * 60);
+    
+    // Get GPU to calculate cost
+    const gpu = await storage.getGpu(rental.gpuId);
+    if (!gpu) {
+      return { success: false, message: "Associated GPU not found." };
+    }
+    
+    const totalCost = parseFloat((durationHours * gpu.pricePerHour).toFixed(2));
+    
+    // Update rental
+    const updatedRental = await storage.updateRental(rentalId, {
+      status: "completed",
+      endTime,
+      totalCost
+    });
+    
+    // Make GPU available again
+    await storage.updateGpu(gpu.id, { available: true });
+    
+    // Create notifications
+    await storage.createNotification({
+      userId: gpu.ownerId,
+      title: "Rental Completed",
+      message: `Your GPU ${gpu.name} rental has been completed`,
+      type: 'rental_completed',
+      relatedId: rental.id
+    });
+    
+    await storage.createNotification({
+      userId: rental.renterId,
+      title: "Rental Bill",
+      message: `Your rental of ${gpu.name} GPU has ended. Total cost: $${totalCost.toFixed(2)}`,
+      type: 'rental_bill',
+      relatedId: rental.id
+    });
+    
+    return { 
+      success: true, 
+      message: `Successfully stopped rental #${rentalId}. Final cost: $${totalCost.toFixed(2)}.`,
+      rentalId: rentalId
+    };
+  } catch (error) {
+    console.error("Error stopping rental:", error);
+    return { 
+      success: false, 
+      message: "An error occurred while stopping the rental. Please try again." 
+    };
+  }
+}
+
+/**
+ * Toggle the application theme (light/dark mode)
+ * This function doesn't actually change the theme, it just returns a success message
+ * The UI will handle the actual theme change through the client-side theme toggle
+ */
+export function toggleTheme(): { success: boolean; message: string; action: string } {
+  return {
+    success: true,
+    message: "Theme preference updated. You can toggle back anytime by asking me to switch the theme.",
+    action: "toggleTheme"
+  };
+}
 
 /**
  * Creates a new GPU listing

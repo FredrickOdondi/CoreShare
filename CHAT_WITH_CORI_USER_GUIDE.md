@@ -53,7 +53,25 @@ Get personalized assistance with your account:
 - "When does my current rental expire?"
 - "How many GPUs do I have listed?"
 
-### 4. Creating GPU Listings
+### 4. Manage Rentals
+
+Control your active GPU rentals through natural conversation:
+
+- "Stop my current GPU rental"
+- "End my rental with GPU #12"
+- "Cancel my active rental"
+- "End all my running rentals"
+
+### 5. Customize Your Experience
+
+Personalize your CoreShare experience:
+
+- "Switch to dark mode"
+- "Change to light mode"
+- "Toggle the theme"
+- "I prefer darker screens"
+
+### 6. Creating GPU Listings
 
 If you have a GPU to share, Cori can help you create a listing:
 
@@ -130,6 +148,59 @@ You: "5"
 Cori: "Would you like to add any additional technical specifications like CUDA cores or clock speeds?"
 You: "It has 8704 CUDA cores and a boost clock of 1.71 GHz"
 Cori: "Thanks! I'm creating your listing now..."
+
+### Managing Rentals
+
+When you need to stop an active rental, you can have a conversation like this:
+
+You: "Stop my GPU rental"
+Cori: "I found you have one active rental. Would you like me to stop it now?"
+You: "Yes, please"
+Cori: "Successfully stopped rental #42. Final cost: $12.50."
+
+If you have multiple active rentals:
+
+You: "Stop my GPU rental"
+Cori: "You have multiple active rentals. Please specify which one you'd like to stop:
+- Rental #42: GPU ID 15
+- Rental #43: GPU ID 21"
+You: "Stop rental #42"
+Cori: "Successfully stopped rental #42. Final cost: $12.50."
+
+### Theme Customization
+
+To change the application theme:
+
+You: "I prefer dark mode"
+Cori: "Theme preference updated. You can toggle back anytime by asking me to switch the theme."
+
+You: "Switch to light mode"
+Cori: "Theme preference updated to light mode. Let me know if you'd like to switch back to dark mode."
+
+## Performance Features
+
+Chat with Cori has been optimized for a fast, responsive experience:
+
+### Response Caching
+
+Cori remembers answers to common questions:
+- Frequently asked questions receive instant responses
+- Technical information and platform details are cached for quick access
+- Cache refreshes periodically to ensure information stays current
+
+### Smart Data Loading
+
+Cori efficiently accesses only the data needed to answer your questions:
+- Background processing keeps the interface responsive
+- Database information is retrieved in optimal batches
+- Performance monitoring ensures consistent response times
+
+### Debounced Messaging
+
+The system prevents accidental rapid-fire messages:
+- No more duplicate responses if you accidentally click "Send" twice
+- Messages are processed in a queue to maintain conversation flow
+- The interface remains responsive even during complex queries
 
 ## Troubleshooting
 

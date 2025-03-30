@@ -10,9 +10,16 @@ import {
   insertNotificationSchema
 } from "@shared/schema";
 import * as chatbot from "./chatbot";
+import { registerMPesaRoutes } from "./routes-mpesa";
+
+import { Request, Response, NextFunction } from "express";
+
+interface AuthenticatedRequest extends Request {
+  user: Express.User;
+}
 
 // Middleware to check if user is authenticated
-const isAuthenticated = (req: any, res: any, next: any) => {
+const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
   if (req.isAuthenticated()) {
     return next();
   }
@@ -20,12 +27,14 @@ const isAuthenticated = (req: any, res: any, next: any) => {
 };
 
 // Middleware to check user role
-const hasRole = (roles: string[]) => (req: any, res: any, next: any) => {
+const hasRole = (roles: string[]) => (req: Request, res: Response, next: NextFunction) => {
   if (!req.isAuthenticated()) {
     return res.status(401).json({ message: "Not authenticated" });
   }
   
-  if (roles.includes(req.user.role) || req.user.role === "both") {
+  const authenticatedReq = req as AuthenticatedRequest;
+  
+  if (roles.includes(authenticatedReq.user.role) || authenticatedReq.user.role === "both") {
     return next();
   }
   
@@ -104,11 +113,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Create GPU (rentee only)
-  app.post("/api/gpus", isAuthenticated, hasRole(["rentee"]), async (req, res) => {
+  app.post("/api/gpus", isAuthenticated, hasRole(["rentee"]), async (req: Request, res: Response) => {
     try {
+      const authenticatedReq = req as AuthenticatedRequest;
       const validation = insertGpuSchema.safeParse({
         ...req.body,
-        ownerId: req.user.id
+        ownerId: authenticatedReq.user.id
       });
       
       if (!validation.success) {
@@ -207,12 +217,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // Rental Management Routes
   
-  // Rent a GPU
-  app.post("/api/rentals", isAuthenticated, hasRole(["renter"]), async (req, res) => {
+  // Request to rent a GPU
+  app.post("/api/rentals", isAuthenticated, hasRole(["renter"]), async (req: Request, res: Response) => {
     try {
+      const authenticatedReq = req as AuthenticatedRequest;
       const validation = insertRentalSchema.safeParse({
         ...req.body,
-        renterId: req.user.id
+        renterId: authenticatedReq.user.id
       });
       
       if (!validation.success) {
@@ -233,38 +244,447 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "GPU is not available for rent" });
       }
       
-      // Create the rental
-      const rental = await storage.createRental(validation.data);
+      // Create the rental with pending_approval status
+      const rental = await storage.createRental({
+        ...validation.data,
+        status: "pending_approval" // Set initial status to pending approval
+      });
       
-      // Mark GPU as unavailable
+      // Mark GPU as temporarily unavailable (pending approval)
       await storage.updateGpu(gpu.id, { available: false });
       
-      // Create a notification for the GPU owner
+      // Create a notification for the GPU owner requesting approval
       await storage.createNotification({
         userId: gpu.ownerId,
-        title: "New GPU Rental",
-        message: `Your GPU ${gpu.name} has been rented`,
-        type: 'rental_started',
+        title: "New Rental Request",
+        message: `Someone wants to rent your GPU ${gpu.name}. Please review and approve this request.`,
+        type: 'rental_request',
         relatedId: rental.id
       });
       
-      // Run AI analysis in the background after each new rental
-      // This keeps the common tasks and popularity score updated
-      setTimeout(() => {
-        storage.analyzeGpuUsage().catch(err => {
-          console.error("Background AI analysis failed:", err);
-        });
-      }, 500);
+      // Create a notification for the renter
+      await storage.createNotification({
+        userId: authenticatedReq.user.id,
+        title: "Rental Request Submitted",
+        message: `Your request to rent ${gpu.name} is awaiting owner approval.`,
+        type: 'rental_pending',
+        relatedId: rental.id
+      });
       
-      res.status(201).json(rental);
+      res.status(201).json({
+        ...rental,
+        message: "Your rental request has been submitted and is awaiting approval from the GPU owner."
+      });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
   });
   
-  // Stop rental (complete or cancel)
-  app.patch("/api/rentals/:id/stop", isAuthenticated, async (req, res) => {
+  // Approve a rental request and provide login credentials
+  app.patch("/api/rentals/:id/approve", isAuthenticated, hasRole(["rentee"]), async (req: Request, res: Response) => {
     try {
+      const authenticatedReq = req as AuthenticatedRequest;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid rental ID" });
+      }
+      
+      // Validate that credentials are provided
+      const { loginCredentials } = req.body;
+      if (!loginCredentials) {
+        return res.status(400).json({ message: "Login credentials are required for approval" });
+      }
+      
+      const rental = await storage.getRental(id);
+      if (!rental) {
+        return res.status(404).json({ message: "Rental not found" });
+      }
+      
+      // Verify that the rental is in pending_approval status
+      if (rental.status !== "pending_approval") {
+        return res.status(400).json({ 
+          message: "Only pending rental requests can be approved" 
+        });
+      }
+      
+      const gpu = await storage.getGpu(rental.gpuId);
+      if (!gpu) {
+        return res.status(404).json({ message: "Associated GPU not found" });
+      }
+      
+      // Check that the current user is the GPU owner
+      if (gpu.ownerId !== authenticatedReq.user.id) {
+        return res.status(403).json({ message: "Only the GPU owner can approve rental requests" });
+      }
+      
+      // Update the rental with approval information
+      const updatedRental = await storage.updateRental(id, {
+        status: "approved",
+        approvedAt: new Date(),
+        approvedById: authenticatedReq.user.id,
+        loginCredentials
+      });
+      
+      // Notify the renter that their request was approved
+      await storage.createNotification({
+        userId: rental.renterId,
+        title: "Rental Request Approved",
+        message: `Your request to rent ${gpu.name} has been approved. You can now proceed with payment.`,
+        type: 'rental_approved',
+        relatedId: rental.id
+      });
+      
+      res.json({
+        ...updatedRental,
+        message: "Rental request approved successfully. The renter has been notified."
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Reject a rental request
+  app.patch("/api/rentals/:id/reject", isAuthenticated, hasRole(["rentee"]), async (req: Request, res: Response) => {
+    try {
+      const authenticatedReq = req as AuthenticatedRequest;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid rental ID" });
+      }
+      
+      const { rejectionReason } = req.body;
+      
+      const rental = await storage.getRental(id);
+      if (!rental) {
+        return res.status(404).json({ message: "Rental not found" });
+      }
+      
+      // Verify that the rental is in pending_approval status
+      if (rental.status !== "pending_approval") {
+        return res.status(400).json({ 
+          message: "Only pending rental requests can be rejected" 
+        });
+      }
+      
+      const gpu = await storage.getGpu(rental.gpuId);
+      if (!gpu) {
+        return res.status(404).json({ message: "Associated GPU not found" });
+      }
+      
+      // Check that the current user is the GPU owner
+      if (gpu.ownerId !== authenticatedReq.user.id) {
+        return res.status(403).json({ message: "Only the GPU owner can reject rental requests" });
+      }
+      
+      // Update the rental status to rejected
+      const updatedRental = await storage.updateRental(id, {
+        status: "rejected",
+        rejectionReason: rejectionReason || "Request rejected by GPU owner"
+      });
+      
+      // Make the GPU available again
+      await storage.updateGpu(gpu.id, { available: true });
+      
+      // Notify the renter that their request was rejected
+      await storage.createNotification({
+        userId: rental.renterId,
+        title: "Rental Request Rejected",
+        message: rejectionReason 
+          ? `Your request to rent ${gpu.name} was rejected: ${rejectionReason}`
+          : `Your request to rent ${gpu.name} was rejected by the owner.`,
+        type: 'rental_rejected',
+        relatedId: rental.id
+      });
+      
+      res.json({
+        ...updatedRental,
+        message: "Rental request rejected successfully. The renter has been notified."
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Initiate M-Pesa payment for an approved rental
+  app.post("/api/rentals/:id/initiate-payment", isAuthenticated, hasRole(["renter"]), async (req: Request, res: Response) => {
+    try {
+      const authenticatedReq = req as AuthenticatedRequest;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid rental ID" });
+      }
+      
+      const { phoneNumber } = req.body;
+      if (!phoneNumber) {
+        return res.status(400).json({ message: "Phone number is required for M-Pesa payment" });
+      }
+      
+      const rental = await storage.getRental(id);
+      if (!rental) {
+        return res.status(404).json({ message: "Rental not found" });
+      }
+      
+      // Verify that the rental is in approved status
+      if (rental.status !== "approved") {
+        return res.status(400).json({ 
+          message: "Only approved rentals can be paid for" 
+        });
+      }
+      
+      // Verify the renter is the one making the payment
+      if (rental.renterId !== authenticatedReq.user.id) {
+        return res.status(403).json({ message: "Only the renter can initiate payment" });
+      }
+      
+      const gpu = await storage.getGpu(rental.gpuId);
+      if (!gpu) {
+        return res.status(404).json({ message: "Associated GPU not found" });
+      }
+      
+      // Import the M-Pesa module dynamically to avoid circular dependencies
+      const { initiateSTKPush } = await import('./mpesa');
+      
+      // Calculate the amount to charge
+      // For M-Pesa, we typically charge for a predetermined period, e.g., 1 hour
+      const initialPaymentHours = 1;
+      const amount = gpu.pricePerHour * initialPaymentHours;
+      
+      // Initiate M-Pesa STK Push
+      const mpesaResponse = await initiateSTKPush({
+        phoneNumber: phoneNumber.replace('+', ''), // Remove + sign if present
+        amount,
+        accountReference: `GPU-${gpu.id}-RENTAL-${rental.id}`,
+        transactionDesc: `Payment for ${gpu.name} GPU Rental`
+      });
+      
+      // Update the rental with the checkout request ID
+      await storage.updateRental(id, {
+        paymentIntentId: mpesaResponse.CheckoutRequestID,
+        paymentStatus: "pending"
+      });
+      
+      // Record the pending payment
+      await storage.createPayment({
+        userId: authenticatedReq.user.id,
+        rentalId: id,
+        amount,
+        paymentIntentId: mpesaResponse.CheckoutRequestID,
+        status: "pending",
+        paymentMethod: "mpesa",
+        metadata: JSON.stringify({
+          phoneNumber,
+          merchantRequestId: mpesaResponse.MerchantRequestID,
+          checkoutRequestId: mpesaResponse.CheckoutRequestID
+        })
+      });
+      
+      res.json({
+        success: true,
+        message: "M-Pesa payment initiated. Please check your phone to complete the payment.",
+        checkoutRequestId: mpesaResponse.CheckoutRequestID,
+        merchantRequestId: mpesaResponse.MerchantRequestID
+      });
+    } catch (error: any) {
+      console.error("M-Pesa payment error:", error);
+      res.status(500).json({ 
+        success: false,
+        message: error.message || "Failed to initiate payment"
+      });
+    }
+  });
+
+  // M-Pesa payment callback endpoint
+  app.post("/api/mpesa/callback", async (req: Request, res: Response) => {
+    try {
+      // Import the M-Pesa module dynamically
+      const { processMPesaCallback } = await import('./mpesa');
+      
+      // Process the callback data
+      const callbackData = req.body;
+      const result = processMPesaCallback(callbackData);
+      
+      if (result.success) {
+        // Payment was successful
+        // Find the payment record using the CheckoutRequestID
+        const checkoutRequestId = callbackData.Body.stkCallback.CheckoutRequestID;
+        const payment = await storage.getPaymentByPaymentIntentId(checkoutRequestId);
+        
+        if (!payment) {
+          console.error("Payment record not found for checkoutRequestId:", checkoutRequestId);
+          return res.status(404).json({ message: "Payment record not found" });
+        }
+        
+        // Update the payment status
+        await storage.updatePayment(payment.id, {
+          status: "succeeded",
+          metadata: JSON.stringify({
+            ...JSON.parse(payment.metadata || '{}'),
+            mpesaTransactionId: result.transactionId,
+            completedAt: new Date().toISOString()
+          })
+        });
+        
+        // Update the rental status to running
+        if (payment.rentalId) {
+          const rental = await storage.getRental(payment.rentalId);
+          if (rental) {
+            const updatedRental = await storage.updateRental(rental.id, {
+              status: "running",
+              paymentStatus: "paid"
+            });
+            
+            // Get the GPU info for notification
+            const gpu = await storage.getGpu(rental.gpuId);
+            if (gpu) {
+              // Notify the GPU owner that payment was received
+              await storage.createNotification({
+                userId: gpu.ownerId,
+                title: "Payment Received",
+                message: `M-Pesa payment has been received for rental of your GPU ${gpu.name}.`,
+                type: 'payment_received',
+                relatedId: rental.id
+              });
+              
+              // Notify the renter that payment was successful
+              await storage.createNotification({
+                userId: rental.renterId,
+                title: "Payment Successful",
+                message: `Your M-Pesa payment for ${gpu.name} GPU rental was successful. You can now access the GPU.`,
+                type: 'payment_success',
+                relatedId: rental.id
+              });
+            }
+          }
+        }
+      } else {
+        // Payment failed
+        console.error("M-Pesa payment failed:", result.resultDesc);
+        
+        // Find the payment record
+        const checkoutRequestId = callbackData.Body.stkCallback.CheckoutRequestID;
+        const payment = await storage.getPaymentByPaymentIntentId(checkoutRequestId);
+        
+        if (payment) {
+          // Update the payment status
+          await storage.updatePayment(payment.id, {
+            status: "failed",
+            metadata: JSON.stringify({
+              ...JSON.parse(payment.metadata || '{}'),
+              failureReason: result.resultDesc,
+              failedAt: new Date().toISOString()
+            })
+          });
+          
+          // Notify the user that payment failed
+          if (payment.rentalId) {
+            const rental = await storage.getRental(payment.rentalId);
+            if (rental) {
+              await storage.createNotification({
+                userId: rental.renterId,
+                title: "Payment Failed",
+                message: `Your M-Pesa payment failed: ${result.resultDesc}. Please try again.`,
+                type: 'payment_failed',
+                relatedId: rental.id
+              });
+            }
+          }
+        }
+      }
+      
+      // Always return success to M-Pesa
+      res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted" });
+    } catch (error: any) {
+      console.error("M-Pesa callback error:", error);
+      // Still return success to M-Pesa to prevent retries
+      res.status(200).json({ ResultCode: 0, ResultDesc: "Accepted with errors" });
+    }
+  });
+
+  // Check payment status endpoint
+  app.get("/api/rentals/:id/payment-status", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const authenticatedReq = req as AuthenticatedRequest;
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid rental ID" });
+      }
+      
+      const rental = await storage.getRental(id);
+      if (!rental) {
+        return res.status(404).json({ message: "Rental not found" });
+      }
+      
+      // Verify the user has access to this rental
+      const gpu = await storage.getGpu(rental.gpuId);
+      if (!gpu) {
+        return res.status(404).json({ message: "Associated GPU not found" });
+      }
+      
+      if (rental.renterId !== authenticatedReq.user.id && gpu.ownerId !== authenticatedReq.user.id) {
+        return res.status(403).json({ message: "Permission denied" });
+      }
+      
+      // If the rental has a payment intent ID, check its status
+      if (rental.paymentIntentId) {
+        const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId);
+        
+        if (payment) {
+          // Check if the payment is still pending and has been pending for a while
+          if (payment.status === "pending") {
+            // If it's been more than 5 minutes, we can check with M-Pesa
+            const paymentCreatedTime = new Date(payment.createdAt || new Date()).getTime();
+            const currentTime = new Date().getTime();
+            const minutesPassed = (currentTime - paymentCreatedTime) / (1000 * 60);
+            
+            if (minutesPassed > 5) {
+              try {
+                // Import the M-Pesa module dynamically
+                const { checkTransactionStatus } = await import('./mpesa');
+                
+                // Check the status with M-Pesa
+                const statusResponse = await checkTransactionStatus(rental.paymentIntentId);
+                
+                // Update response based on M-Pesa status
+                return res.json({
+                  status: payment.status,
+                  paymentMethod: payment.paymentMethod,
+                  amount: payment.amount,
+                  timestamp: payment.createdAt,
+                  metadata: payment.metadata,
+                  mpesaResponse: statusResponse
+                });
+              } catch (mpesaError: any) {
+                console.error("Error checking M-Pesa status:", mpesaError);
+                // Fall back to returning the stored payment data
+              }
+            }
+          }
+          
+          // Return the payment status
+          return res.json({
+            status: payment.status,
+            paymentMethod: payment.paymentMethod,
+            amount: payment.amount,
+            timestamp: payment.createdAt,
+            metadata: payment.metadata
+          });
+        }
+      }
+      
+      // If no payment record found
+      res.json({
+        status: rental.paymentStatus || "unknown",
+        message: "No detailed payment information available"
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Stop rental (complete or cancel)
+  app.patch("/api/rentals/:id/stop", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const authenticatedReq = req as AuthenticatedRequest;
       const id = parseInt(req.params.id);
       if (isNaN(id)) {
         return res.status(400).json({ message: "Invalid rental ID" });
@@ -281,7 +701,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Permission check - only the renter or GPU owner can stop a rental
-      if (rental.renterId !== req.user.id && gpu.ownerId !== req.user.id) {
+      if (rental.renterId !== authenticatedReq.user.id && gpu.ownerId !== authenticatedReq.user.id) {
         return res.status(403).json({ message: "Permission denied" });
       }
       
@@ -317,7 +737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       await storage.createNotification({
         userId: rental.renterId,
         title: "Rental Bill",
-        message: `Your rental of ${gpu.name} has been completed. Total cost: Ksh ${totalCost}`,
+        message: `Your rental of ${gpu.name} has been completed. Total cost: $${totalCost.toFixed(2)}`,
         type: 'rental_bill',
         relatedId: rental.id
       });
@@ -589,17 +1009,113 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Active requests tracking for debouncing
+  const activeRequests: Record<string, { timestamp: number, promiseResolve: any }> = {};
+  const DEBOUNCE_INTERVAL = 1000; // 1 second debounce time
+  
   // Send a message to the chatbot
   app.post("/api/chat/message", async (req, res) => {
     try {
       const { sessionId, message } = req.body;
+      const startTime = performance.now();
       
       if (!sessionId || !message) {
         return res.status(400).json({ message: "Session ID and message are required" });
       }
       
-      // Process message now returns a Promise
+      // Implement debouncing to prevent rapid-fire requests
+      const now = Date.now();
+      const requestKey = `${sessionId}-${now}`;
+      
+      // Check if there are recent requests from this session
+      const recentRequests = Object.entries(activeRequests)
+        .filter(([key, data]) => 
+          key.startsWith(sessionId) && 
+          now - data.timestamp < DEBOUNCE_INTERVAL
+        );
+      
+      // If there's a very recent request, apply debouncing
+      if (recentRequests.length > 0) {
+        console.log(`Debouncing request for session ${sessionId}`);
+        await new Promise(resolve => setTimeout(resolve, DEBOUNCE_INTERVAL));
+      }
+      
+      // Add this request to active requests
+      activeRequests[requestKey] = {
+        timestamp: now,
+        promiseResolve: null
+      };
+      
+      // Process message 
+      console.log(`Processing message from session ${sessionId}: "${message.substring(0, 30)}${message.length > 30 ? '...' : ''}"`);
       const response = await chatbot.processMessage(sessionId, message);
+      
+      // Remove this request from active requests
+      delete activeRequests[requestKey];
+      
+      // Check for potential commands in the user's message
+      const lowerMessage = message.toLowerCase();
+      const session = chatbot.getChatSession(sessionId);
+      const userId = session?.userId;
+      
+      // Log processing time
+      const endTime = performance.now();
+      console.log(`Message processed in ${Math.round(endTime - startTime)}ms`);
+      
+      // Handle stop rental command
+      if (userId && 
+          (lowerMessage.includes("stop rental") || 
+           lowerMessage.includes("stop my gpu") || 
+           lowerMessage.includes("stop the gpu") ||
+           lowerMessage.includes("end rental") ||
+           lowerMessage.includes("cancel rental"))) {
+        try {
+          // Try to extract a rental ID if any
+          const rentalIdMatch = message.match(/rental\s*#?(\d+)/i) || 
+                                message.match(/rental\s*id\s*:?\s*(\d+)/i) ||
+                                message.match(/stop\s*#?(\d+)/i);
+          
+          const rentalId = rentalIdMatch ? parseInt(rentalIdMatch[1]) : undefined;
+          
+          // Call the stopRental function
+          const result = await chatbot.stopRental(userId, rentalId);
+          
+          // Only override the response if this was a primary intent
+          if (result.success) {
+            // Override the chatbot response with the result
+            response.content = result.message;
+          }
+        } catch (error) {
+          console.error("Error executing rental stop command:", error);
+        }
+      }
+      
+      // Handle theme toggle command
+      if (lowerMessage.includes("dark mode") || 
+          lowerMessage.includes("light mode") || 
+          lowerMessage.includes("toggle theme") ||
+          lowerMessage.includes("switch theme") ||
+          lowerMessage.includes("change theme")) {
+        try {
+          // Call the toggleTheme function
+          const result = chatbot.toggleTheme();
+          
+          // Add the action to the response
+          res.setHeader('X-Theme-Action', 'toggle');
+          
+          // Only override if this was a primary intent
+          if (lowerMessage.includes("toggle theme") || 
+              lowerMessage.includes("switch theme") ||
+              lowerMessage.includes("change theme") ||
+              lowerMessage.includes("dark mode") ||
+              lowerMessage.includes("light mode")) {
+            response.content = result.message;
+          }
+        } catch (error) {
+          console.error("Error executing theme toggle command:", error);
+        }
+      }
+      
       res.json(response);
     } catch (error: any) {
       console.error("Error processing chat message:", error);
@@ -741,6 +1257,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: error.message });
     }
   });
+  
+  // Initialize M-Pesa routes
+  await registerMPesaRoutes(app);
   
   const httpServer = createServer(app);
   return httpServer;
