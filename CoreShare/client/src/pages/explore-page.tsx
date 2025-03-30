@@ -10,6 +10,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { SubmitVideoForm } from "@/components/explore/submit-video-form";
 import { MyVideos } from "@/components/explore/my-videos";
 import ReactPlayer from "react-player/lazy";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Video {
   id: number;
@@ -55,6 +56,16 @@ export default function ExplorePage() {
     fetchVideos();
   }, []);
 
+  // Helper function to shuffle array (Fisher-Yates algorithm)
+  const shuffleArray = (array: any[]) => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+  };
+
   const fetchVideos = async () => {
     setLoading(true);
     try {
@@ -89,22 +100,10 @@ export default function ExplorePage() {
         throw new Error("Failed to fetch videos");
       }
       
-      const videos = await response.json();
+      // Randomize all videos first for global randomization
+      const allVideos = shuffleArray(await response.json());
       
-      // Show all videos, regardless of status (no filtering by approval status)
-      const allVideos = videos;
-      
-      // Helper function to shuffle array (Fisher-Yates algorithm)
-      const shuffleArray = (array: any[]) => {
-        const shuffled = [...array];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
-        }
-        return shuffled;
-      };
-      
-      // Assign videos to their respective categories and randomize the order
+      // Assign videos to their respective categories and randomize the order again
       videoCategories.forEach(category => {
         const categoryVideos = allVideos
           .filter((video: Video) => video.categoryId === category.id)
@@ -113,7 +112,7 @@ export default function ExplorePage() {
             thumbnail: getYoutubeThumbnail(video.url)
           }));
           
-        // Randomize videos in each category
+        // Additional randomization within each category
         category.videos = shuffleArray(categoryVideos);
       });
 
@@ -155,6 +154,34 @@ export default function ExplorePage() {
             </div>
             
             <div className="flex items-center gap-2">
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button 
+                      variant="outline" 
+                      className="flex items-center gap-2"
+                      onClick={fetchVideos}
+                      disabled={loading}
+                    >
+                      {loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-shuffle">
+                          <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 2-1.7 3.3-1.7H22"></path>
+                          <path d="m18 2 4 4-4 4"></path>
+                          <path d="M2 6h1.9c1.5 0 2.9.9 3.6 2.2"></path>
+                          <path d="M22 18h-5.9c-1.3 0-2.6-.7-3.3-1.8l-.5-.8"></path>
+                          <path d="m18 14 4 4-4 4"></path>
+                        </svg>
+                      )}
+                      {loading ? "Shuffling..." : "Shuffle Videos"}
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Randomize videos for a fresh experience</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <MyVideos />
               <SubmitVideoForm onSuccess={fetchVideos} />
             </div>
