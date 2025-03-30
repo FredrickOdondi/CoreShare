@@ -1473,6 +1473,74 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Update video - only the owner can update
+  app.patch('/api/videos/:id', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid video ID' });
+      }
+      
+      // Get the video to check ownership
+      const video = await storage.getVideo(id);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      // Ensure the user is the owner of the video
+      if (video.userId !== req.user.id) {
+        return res.status(403).json({ message: 'Permission denied. You can only update your own videos.' });
+      }
+      
+      // Update the video
+      const updatedVideo = await storage.updateVideo(id, {
+        title: req.body.title,
+        url: req.body.url,
+        categoryId: req.body.categoryId,
+      });
+      
+      res.json(updatedVideo);
+    } catch (error) {
+      console.error('Error updating video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
+  // Delete video - only the owner can delete
+  app.delete('/api/videos/:id', isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: 'Invalid video ID' });
+      }
+      
+      // Get the video to check ownership
+      const video = await storage.getVideo(id);
+      
+      if (!video) {
+        return res.status(404).json({ message: 'Video not found' });
+      }
+      
+      // Ensure the user is the owner of the video
+      if (video.userId !== req.user.id) {
+        return res.status(403).json({ message: 'Permission denied. You can only delete your own videos.' });
+      }
+      
+      // Delete the video
+      const deleted = await storage.deleteVideo(id);
+      
+      if (deleted) {
+        res.status(204).send();
+      } else {
+        res.status(500).json({ message: 'Failed to delete video' });
+      }
+    } catch (error) {
+      console.error('Error deleting video:', error);
+      res.status(500).json({ message: 'Internal server error' });
+    }
+  });
+  
   // Admin routes for video management have been removed
   // No approval process is needed as videos are published immediately
   

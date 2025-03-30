@@ -72,6 +72,7 @@ export interface IStorage {
   listVideos(categoryId?: string, status?: string): Promise<Video[]>;
   createVideo(video: InsertVideo): Promise<Video>;
   updateVideo(id: number, data: Partial<Video>): Promise<Video | undefined>;
+  deleteVideo(id: number): Promise<boolean>;
   getVideosByUserId(userId: number): Promise<Video[]>;
   approveVideo(id: number): Promise<Video | undefined>;
   rejectVideo(id: number, reason: string): Promise<Video | undefined>;
@@ -1008,6 +1009,11 @@ export class PostgresStorage implements IStorage {
   async getVideosByUserId(userId: number): Promise<Video[]> {
     const result = await pool.query('SELECT * FROM videos WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
     return result.rows.map(video => this.mapDatabaseVideoToVideoModel(video));
+  }
+  
+  async deleteVideo(id: number): Promise<boolean> {
+    const result = await pool.query('DELETE FROM videos WHERE id = $1', [id]);
+    return result.rowCount > 0;
   }
   
   async approveVideo(id: number): Promise<Video | undefined> {
