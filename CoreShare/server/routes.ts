@@ -244,36 +244,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: "GPU is not available for rent" });
       }
       
-      // Create the rental with pending_approval status
+      // Get login credentials and owner info from GPU owner
+      const gpuOwner = await storage.getUser(gpu.ownerId);
+      if (!gpuOwner) {
+        return res.status(404).json({ message: "GPU owner not found" });
+      }
+      
+      // Create the rental with requires_payment status
       const rental = await storage.createRental({
         ...validation.data,
-        status: "pending_approval" // Set initial status to pending approval
+        status: "requires_payment" // Set initial status to requires payment
       });
       
-      // Mark GPU as temporarily unavailable (pending approval)
+      // Now update it with approval information
+      await storage.updateRental(rental.id, {
+        approvedAt: new Date(),
+        approvedById: gpu.ownerId
+      });
+      
+      // Mark GPU as temporarily unavailable
       await storage.updateGpu(gpu.id, { available: false });
       
-      // Create a notification for the GPU owner requesting approval
+      // Create a notification for the GPU owner about new rental
       await storage.createNotification({
         userId: gpu.ownerId,
         title: "New Rental Request",
-        message: `Someone wants to rent your GPU ${gpu.name}. Please review and approve this request.`,
+        message: `${authenticatedReq.user.name || "Someone"} wants to rent your GPU ${gpu.name}. Rental will be approved once payment is received.`,
         type: 'rental_request',
         relatedId: rental.id
       });
       
-      // Create a notification for the renter
+      // Create a notification for the renter to make payment
       await storage.createNotification({
         userId: authenticatedReq.user.id,
-        title: "Rental Request Submitted",
-        message: `Your request to rent ${gpu.name} is awaiting owner approval.`,
-        type: 'rental_pending',
+        title: "Payment Required",
+        message: `Your request to rent ${gpu.name} requires payment. Please complete the payment to start using the GPU.`,
+        type: 'payment_required',
         relatedId: rental.id
       });
       
       res.status(201).json({
         ...rental,
-        message: "Your rental request has been submitted and is awaiting approval from the GPU owner."
+        message: "Your rental request has been created. Please complete the payment to start using the GPU."
       });
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -300,10 +312,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Rental not found" });
       }
       
-      // Verify that the rental is in pending_approval status
-      if (rental.status !== "pending_approval") {
+      // Verify that the rental is in requires_payment status
+      if (rental.status !== "requires_payment") {
         return res.status(400).json({ 
-          message: "Only pending rental requests can be approved" 
+          message: "Only rentals pending payment can be updated with credentials" 
         });
       }
       
@@ -359,10 +371,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Rental not found" });
       }
       
-      // Verify that the rental is in pending_approval status
-      if (rental.status !== "pending_approval") {
+      // Verify that the rental is in requires_payment status
+      if (rental.status !== "requires_payment") {
         return res.status(400).json({ 
-          message: "Only pending rental requests can be rejected" 
+          message: "Only rentals pending payment can be rejected" 
         });
       }
       
@@ -424,10 +436,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Rental not found" });
       }
       
-      // Verify that the rental is in approved status
-      if (rental.status !== "approved") {
+      // Verify that the rental is in requires_payment status
+      if (rental.status !== "requires_payment") {
         return res.status(400).json({ 
-          message: "Only approved rentals can be paid for" 
+          message: "Only rentals pending payment can be paid for" 
         });
       }
       

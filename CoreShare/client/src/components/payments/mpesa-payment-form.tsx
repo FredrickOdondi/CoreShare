@@ -85,13 +85,31 @@ export function MPesaPaymentForm({ rentalId, gpuName, amount, onSuccess, onCance
       }
     } catch (err: any) {
       setPaymentStatus('failed');
-      setError(err.message || 'Failed to connect to payment service');
+      console.error('Payment initiation error:', err);
       
-      toast({
-        variant: 'destructive',
-        title: 'Connection Error',
-        description: 'Unable to connect to payment service. Please try again.',
-      });
+      // Handle specific error cases
+      if (err.status === 401) {
+        setError('Authentication required. Please log in again to continue.');
+        toast({
+          variant: 'destructive',
+          title: 'Session Expired',
+          description: 'Your session has expired. Please log in again to continue.',
+        });
+      } else if (err.status === 403) {
+        setError('You do not have permission to make this payment.');
+        toast({
+          variant: 'destructive',
+          title: 'Permission Denied',
+          description: 'You do not have permission to make this payment.',
+        });
+      } else {
+        setError(err.message || 'Failed to connect to payment service');
+        toast({
+          variant: 'destructive',
+          title: 'Connection Error',
+          description: 'Unable to connect to payment service. Please try again.',
+        });
+      }
     } finally {
       setLoading(false);
     }
@@ -136,8 +154,16 @@ export function MPesaPaymentForm({ rentalId, gpuName, amount, onSuccess, onCance
             return true; // Stop polling
           }
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error checking payment status:', err);
+        
+        // Don't show errors for network issues during polling to avoid confusion
+        // Only stop polling for authentication problems
+        if (err.status === 401 || err.status === 403) {
+          setPaymentStatus('failed');
+          setError('Session expired. Please log in again to check payment status.');
+          return true; // Stop polling
+        }
       }
       
       attempts++;

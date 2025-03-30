@@ -18,7 +18,13 @@ const MPESA_CONSUMER_KEY = process.env.MPESA_CONSUMER_KEY;
 const MPESA_CONSUMER_SECRET = process.env.MPESA_CONSUMER_SECRET;
 const MPESA_SHORTCODE = process.env.MPESA_SHORTCODE || '174379'; // Default sandbox shortcode
 const MPESA_PASSKEY = process.env.MPESA_PASSKEY;
-const CALLBACK_URL = process.env.MPESA_CALLBACK_URL || 'https://example.com/api/callback/mpesa';
+
+// Get the current Replit domain for callback URL
+const REPLIT_DOMAIN = process.env.REPLIT_DOMAINS ? process.env.REPLIT_DOMAINS.split(',')[0] : 'localhost:5000';
+const CALLBACK_URL = process.env.MPESA_CALLBACK_URL || `https://${REPLIT_DOMAIN}/api/callback/mpesa`;
+
+// Test mode for development - set to false in production
+const TEST_MODE = process.env.NODE_ENV !== 'production';
 
 // Input validation schemas
 export const stkPushRequestSchema = z.object({
@@ -110,6 +116,19 @@ export async function initiateSTKPush(data: StkPushRequest): Promise<any> {
       throw new MPesaError('Invalid payment data: ' + JSON.stringify(validation.error.format()));
     }
     
+    // If in test mode, return mock successful response
+    if (TEST_MODE) {
+      console.log('M-Pesa TEST MODE - Simulating successful payment initiation');
+      return {
+        CheckoutRequestID: `test-${Date.now()}`,
+        MerchantRequestID: `test-${Math.random().toString(36).substring(2, 15)}`,
+        ResponseCode: '0',
+        ResponseDescription: 'Success. Request accepted for processing',
+        CustomerMessage: 'Success. Request accepted for processing'
+      };
+    }
+    
+    // Real M-Pesa integration
     const accessToken = await getMPesaAccessToken();
     const timestamp = getTimestamp();
     const password = generatePassword(timestamp);
@@ -148,6 +167,25 @@ export async function initiateSTKPush(data: StkPushRequest): Promise<any> {
  */
 export async function checkTransactionStatus(checkoutRequestId: string): Promise<any> {
   try {
+    // If in test mode, check if it's a test checkout ID and return a mock response
+    if (TEST_MODE && checkoutRequestId.startsWith('test-')) {
+      console.log('M-Pesa TEST MODE - Simulating successful payment status check');
+      // If the checkout request ID is older than 10 seconds, consider it "paid"
+      const timestamp = parseInt(checkoutRequestId.split('-')[1]);
+      const tenSecondsAgo = Date.now() - 10000;
+      const isPaid = timestamp < tenSecondsAgo;
+
+      return {
+        ResponseCode: '0',
+        ResponseDescription: 'Success',
+        MerchantRequestID: `test-${Math.random().toString(36).substring(2, 15)}`,
+        CheckoutRequestID: checkoutRequestId,
+        ResultCode: isPaid ? '0' : '1',
+        ResultDesc: isPaid ? 'The transaction is completed successfully' : 'Transaction is in progress'
+      };
+    }
+    
+    // Real M-Pesa integration
     const accessToken = await getMPesaAccessToken();
     const timestamp = getTimestamp();
     const password = generatePassword(timestamp);
@@ -185,7 +223,19 @@ export function processMPesaCallback(callbackData: any): {
   resultDesc?: string;
 } {
   try {
-    // Extract data from the callback payload
+    // Handle test mode callbacks (usually triggered manually)
+    if (TEST_MODE && callbackData.testMode === true) {
+      console.log('M-Pesa TEST MODE - Processing manual callback');
+      return {
+        success: true,
+        transactionId: `TEST-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+        amount: callbackData.amount || 100,
+        phoneNumber: callbackData.phoneNumber || '254712345678',
+        resultDesc: 'Test transaction completed successfully'
+      };
+    }
+    
+    // Regular callback handling
     const body = callbackData.Body;
     
     if (!body || !body.stkCallback) {
@@ -193,6 +243,30 @@ export function processMPesaCallback(callbackData: any): {
     }
     
     const { ResultCode, ResultDesc, CallbackMetadata } = body.stkCallback;
+    
+    // Special handling for test checkout IDs
+    if (TEST_MODE && body.stkCallback.CheckoutRequestID?.startsWith('test-')) {
+      console.log('M-Pesa TEST MODE - Processing automated callback for test request');
+      const checkoutRequestId = body.stkCallback.CheckoutRequestID;
+      const timestamp = parseInt(checkoutRequestId.split('-')[1]);
+      const tenSecondsAgo = Date.now() - 10000;
+      const isPaid = timestamp < tenSecondsAgo;
+      
+      if (isPaid) {
+        return {
+          success: true,
+          transactionId: `TEST-${Math.random().toString(36).substring(2, 10).toUpperCase()}`,
+          amount: 100,
+          phoneNumber: '254712345678',
+          resultDesc: 'Test transaction completed successfully'
+        };
+      } else {
+        return {
+          success: false,
+          resultDesc: 'Test transaction is still pending'
+        };
+      }
+    }
     
     if (ResultCode === 0) {
       // Transaction was successful

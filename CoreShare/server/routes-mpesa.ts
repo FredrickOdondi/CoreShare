@@ -31,11 +31,110 @@ const hasRole = (roles: string[]) => (req: Request, res: Response, next: NextFun
 // M-Pesa payment request validation schema
 const mpesaPaymentSchema = z.object({
   phoneNumber: z.string().min(10).max(12),
-  amount: z.number().min(1), 
-  rentalId: z.number(),
+  amount: z.number().min(1),
 });
 
 export async function registerMPesaRoutes(app: Express): Promise<void> {
+  // Test endpoint for M-Pesa (DEVELOPMENT ONLY)
+  if (process.env.NODE_ENV !== 'production') {
+    app.post("/api/test/mpesa-callback", async (req: Request, res: Response) => {
+      try {
+        const { rentalId, success = true } = req.body;
+        
+        if (!rentalId) {
+          return res.status(400).json({ message: "rentalId is required" });
+        }
+        
+        console.log(`TEST MODE: Processing manual M-Pesa callback for rental ${rentalId}`);
+        
+        // Get the rental
+        const rental = await storage.getRental(parseInt(rentalId));
+        if (!rental || !rental.paymentIntentId) {
+          return res.status(404).json({ message: "Rental not found or no payment intent" });
+        }
+        
+        // Create mock callback data
+        const callbackData = {
+          testMode: true,
+          success,
+          amount: 100,
+          phoneNumber: '254712345678',
+          Body: {
+            stkCallback: {
+              CheckoutRequestID: rental.paymentIntentId,
+              ResultCode: success ? 0 : 1,
+              ResultDesc: success ? "The service request is processed successfully." : "Failed"
+            }
+          }
+        };
+        
+        // Process the callback
+        const result = processMPesaCallback(callbackData);
+        
+        if (result.success) {
+          // Update the rental and payment status
+          await storage.updateRental(rental.id, {
+            status: "running",
+            paymentStatus: "paid"
+          });
+          
+          // Update the payment
+          const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId);
+          if (payment) {
+            await storage.updatePayment(payment.id, {
+              status: 'succeeded',
+              metadata: JSON.stringify(result)
+            });
+          }
+          
+          // Notify the GPU owner
+          const gpu = await storage.getGpu(rental.gpuId);
+          if (gpu) {
+            await storage.createNotification({
+              userId: gpu.ownerId,
+              title: "Payment Received (TEST)",
+              message: `TEST: Payment has been received for rental of your GPU ${gpu.name}.`,
+              type: 'payment_received',
+              relatedId: rental.id
+            });
+          }
+          
+          // Notify the renter
+          await storage.createNotification({
+            userId: rental.renterId,
+            title: "Payment Successful (TEST)",
+            message: `TEST: Your payment for GPU ${gpu?.name || 'rental'} was successful. You can now access the GPU.`,
+            type: 'payment_successful',
+            relatedId: rental.id
+          });
+        } else {
+          // Update payment status to failed
+          const payment = await storage.getPaymentByPaymentIntentId(rental.paymentIntentId);
+          if (payment) {
+            await storage.updatePayment(payment.id, {
+              status: 'failed',
+              metadata: JSON.stringify(result)
+            });
+          }
+          
+          // Notify the renter of failed payment
+          await storage.createNotification({
+            userId: rental.renterId,
+            title: "Payment Failed (TEST)",
+            message: `TEST: Your M-Pesa payment failed. Please try again.`,
+            type: 'payment_failed',
+            relatedId: rental.id
+          });
+        }
+        
+        res.json({ success: true, message: "Test callback processed", result });
+      } catch (error: any) {
+        console.error('Test callback error:', error);
+        res.status(500).json({ message: "Test callback failed", error: error.message });
+      }
+    });
+  }
+  
   // Initiate M-Pesa payment
   app.post("/api/rentals/:id/mpesa-payment", isAuthenticated, hasRole(["renter"]), async (req: Request, res: Response) => {
     try {

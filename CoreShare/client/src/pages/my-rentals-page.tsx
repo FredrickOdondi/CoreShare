@@ -168,6 +168,7 @@ export default function MyRentalsPage() {
       cell: (row: Rental) => {
         const statusMap = {
           pending_approval: <Badge className="bg-yellow-700 hover:bg-yellow-700">Pending Approval</Badge>,
+          requires_payment: <Badge className="bg-amber-600 hover:bg-amber-600">Payment Required</Badge>,
           approved: <Badge className="bg-purple-700 hover:bg-purple-700">Approved</Badge>,
           rejected: <Badge className="bg-red-900 hover:bg-red-900">Rejected</Badge>,
           running: <Badge className="bg-green-700 hover:bg-green-700">Running</Badge>,
@@ -194,7 +195,7 @@ export default function MyRentalsPage() {
           >
             Details
           </Button>
-          {row.status === "approved" && (
+          {row.status === "requires_payment" && (
             <Button 
               variant="outline" 
               size="sm"
@@ -245,7 +246,7 @@ export default function MyRentalsPage() {
           >
             <TabsList>
               <TabsTrigger value="running">Running</TabsTrigger>
-              <TabsTrigger value="approved">Approved</TabsTrigger>
+              <TabsTrigger value="requires_payment">Payment Required</TabsTrigger>
               <TabsTrigger value="pending_approval">Pending</TabsTrigger>
               <TabsTrigger value="completed">Completed</TabsTrigger>
               <TabsTrigger value="cancelled">Cancelled</TabsTrigger>
@@ -414,7 +415,7 @@ export default function MyRentalsPage() {
               </div>
               
               <DialogFooter>
-                {selectedRental.status === "approved" && (
+                {selectedRental.status === "requires_payment" && (
                   <Button 
                     variant="outline"
                     className="bg-green-900/20 text-green-400 hover:bg-green-900/30 hover:text-green-300"

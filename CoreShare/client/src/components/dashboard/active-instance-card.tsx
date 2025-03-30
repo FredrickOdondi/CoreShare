@@ -57,6 +57,11 @@ export function ActiveInstanceCard({
               Pending
             </span>
           )}
+          {rental.status === "requires_payment" && (
+            <span className="px-2 text-xs font-semibold rounded-full bg-amber-800 bg-opacity-50 text-amber-300">
+              Payment Required
+            </span>
+          )}
           {rental.status === "completed" && (
             <span className="px-2 text-xs font-semibold rounded-full bg-blue-900 bg-opacity-50 text-blue-300">
               Completed
@@ -99,7 +104,7 @@ export function ActiveInstanceCard({
             Details
           </Button>
           
-          {rental.status === "approved" && onPay && (
+          {rental.status === "requires_payment" && onPay && (
             <Button 
               variant="outline" 
               size="sm"

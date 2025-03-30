@@ -63,12 +63,24 @@ export function MPesaPaymentDialog({
             throw new Error('Failed to fetch rental details');
           }
         } catch (err: any) {
-          setError(err.message || 'Failed to load rental details');
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: 'Failed to load payment details. Please try again.',
-          });
+          console.error('Error loading payment details:', err);
+          
+          // Check for authentication issues (401)
+          if (err.status === 401) {
+            setError('Authentication required. Please log in again to continue.');
+            toast({
+              variant: 'destructive',
+              title: 'Session Expired',
+              description: 'Your session has expired. Please log in again to continue.',
+            });
+          } else {
+            setError(err.message || 'Failed to load rental details');
+            toast({
+              variant: 'destructive',
+              title: 'Error',
+              description: 'Failed to load payment details. Please try again.',
+            });
+          }
         } finally {
           setLoading(false);
         }

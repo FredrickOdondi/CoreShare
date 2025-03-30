@@ -51,13 +51,12 @@ export const rentals = pgTable("rentals", {
   startTime: timestamp("start_time").notNull().defaultNow(),
   endTime: timestamp("end_time"),
   // Updated status options:
-  // 'pending_approval' - initial state, waiting for owner to approve
-  // 'approved' - owner approved but waiting for payment
-  // 'running' - payment completed and rental active
+  // 'requires_payment' - initial state, waiting for payment from renter
+  // 'running' - payment completed and rental active (approval is automatic after payment)
   // 'completed' - rental ended normally
   // 'cancelled' - rental cancelled by renter or owner
   // 'rejected' - owner rejected the rental request
-  status: text("status").notNull().default("pending_approval"),
+  status: text("status").notNull().default("requires_payment"),
   totalCost: doublePrecision("total_cost"),
   paymentIntentId: text("payment_intent_id"),
   paymentStatus: text("payment_status").default("unpaid"), // 'unpaid', 'paid', 'refunded'
